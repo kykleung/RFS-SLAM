@@ -50,11 +50,11 @@ Please note that we have only tested the library in Ubuntu 13.04.
 
 To get started, make sure that you have the following libraries installed:
 
-Boost::math_c99
-Boost::timer
-Boost::system
-Boost::thread
-Eigen
+Boost::math_c99 (version 1.48 or higher)
+Boost::timer (version 1.48 or higher)
+Boost::system (version 1.48 or higher)
+Boost::thread (version 1.48 or higher)
+Eigen3
 libconfig (This is only necessary for the simulator)
 
 Compiling for parts of the library and the 2d Simulator can be done with cmake.
