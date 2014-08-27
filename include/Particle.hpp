@@ -28,19 +28,22 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Particle Class used in the RB-PHD-Filter
-// Keith Leung 2013
-
 #ifndef PARTICLE_HPP
 #define PARTICLE_HPP
+
+#include <cstddef>
+#include "RandomVec.hpp"
+
+namespace rfs{
 
 /** 
  *  \class Particle
  *  \brief A class for a particle for the particle filter
  *  \tparam PoseType RandomVec derived class to represent the state of a particle
+ *  \tparam DataType Some user-defined class for carrying extra data / information with a particle
  *  \author Keith Leung
  */
-template< class PoseType >
+template< class PoseType, class DataType = int>
 class Particle
 {
 
@@ -73,13 +76,13 @@ public:
    *  Get particle pose
    *  \param[out] x_k_i pose
    */
-  void getPose( PoseType &x_k_i );
+  void getPose( PoseType &x_k_i ) const;
 
   /**
    *  Get particle pose
    *  \return pointer to pose
    */
-  const PoseType* getPose();
+  const PoseType* getPose() const;
 
   /**
    *  Set particle importance weight
@@ -91,20 +94,20 @@ public:
    *  Get particle importance weight
    *  \return particle weight
    */
-  double getWeight();
+  double getWeight() const;
 
   /**
    * Get the particle id
    * \return particle id
    */
-  unsigned int getId();
+  unsigned int getId() const;
 
   /**
    * Get the particle id of the particle which spawned 
    * the current one after resampling
    * \return parent particle id
    */
-  unsigned int getParentId();
+  unsigned int getParentId() const ;
 
   /** 
    * Set the particle id
@@ -122,7 +125,31 @@ public:
    * Copy the state from this particle to another particle
    * \param[out] p particle to which data is copied to
    */
-  void copyStateTo( Particle<PoseType>* p);
+  void copyStateTo( Particle<PoseType, DataType>* p);
+
+  /** 
+   * Copy the extra data from this particle to another particle
+   * \warning DataType may need a non-default copy constructor
+   * \param[out] p particle to which data is copied to
+   */
+  void copyDataTo( Particle<PoseType, DataType>* p);
+
+  /** 
+   * Get the extra data pointer 
+   * \return pointer to the data
+   */
+  DataType* getData();
+
+  /**
+   * Set the extra data pointer
+   * \param[in] dataPtr pointer to the data
+   */
+  void setData(DataType* dataPtr);
+
+  /**
+   * Delete the extra data
+   */
+  void deleteData();
 
 protected:
 
@@ -130,78 +157,110 @@ protected:
   unsigned int idParent_; /** id of particle which this one is spawned from */
   PoseType x_k_i_; /**< robot pose at timestep k **/
   double w_; /**< Particle weight */
+  DataType* data_; /**< Pointer to extra data */
 
 };
 
 // Implementation
 
-template< class PoseType >
-Particle<PoseType>::Particle(){
+template< class PoseType, class DataType >
+Particle<PoseType, DataType>::Particle(){
   id_ = 0;
   idParent_ = id_;
   x_k_i_ = PoseType();
   w_ = 0;
+  data_ = NULL;
 }
 
-template< class PoseType >
-Particle<PoseType>::Particle( unsigned int id, PoseType &x_k_i, double w ){
+template< class PoseType, class DataType >
+Particle<PoseType, DataType>::Particle( unsigned int id, PoseType &x_k_i, double w ){
   id_ = id;
   idParent_ = id_;
   x_k_i_ = x_k_i;
   w_ = w;
+  data_ = NULL;
 }
 
-template< class PoseType >
-Particle<PoseType>::~Particle(){}
+template< class PoseType, class DataType >
+Particle<PoseType, DataType>::~Particle(){
+  deleteData();
+}
 
-template< class PoseType >
-void Particle<PoseType>::setPose( PoseType &x_k_i ){ 
+template< class PoseType, class DataType >
+void Particle<PoseType, DataType>::setPose( PoseType &x_k_i ){ 
   x_k_i_ = x_k_i;
 }
 
-template< class PoseType >
-void Particle<PoseType>::getPose( PoseType &x_k_i ){
+template< class PoseType, class DataType >
+void Particle<PoseType, DataType>::getPose( PoseType &x_k_i ) const{
   x_k_i = x_k_i_;
 }
 
-template< class PoseType >
-const PoseType* Particle<PoseType>::getPose(){
+template< class PoseType, class DataType >
+const PoseType* Particle<PoseType, DataType>::getPose() const{
   return &x_k_i_;
 }
 
-template< class PoseType >
-void Particle<PoseType>::setWeight( double w ){ 
+template< class PoseType, class DataType >
+void Particle<PoseType, DataType>::setWeight( double w ){ 
   w_ = w;
 }
 
-template< class PoseType >
-double Particle<PoseType>::getWeight(){ 
+template< class PoseType, class DataType >
+double Particle<PoseType, DataType>::getWeight() const{ 
   return w_; 
 }
 
-template< class PoseType >
-unsigned int Particle<PoseType>::getId(){ 
+template< class PoseType, class DataType >
+unsigned int Particle<PoseType, DataType>::getId() const{ 
   return id_; 
 }
 
-template< class PoseType >
-unsigned int Particle<PoseType>::getParentId(){ 
+template< class PoseType, class DataType >
+unsigned int Particle<PoseType, DataType>::getParentId() const{ 
   return idParent_; 
 } 
 
-template< class PoseType >
-void Particle<PoseType>::setId( unsigned int id ){
+template< class PoseType, class DataType >
+void Particle<PoseType, DataType>::setId( unsigned int id ){
   id_ = id;
 }
 
-template< class PoseType >
-void Particle<PoseType>::setParentId( unsigned int id ){
+template< class PoseType, class DataType >
+void Particle<PoseType, DataType>::setParentId( unsigned int id ){
   idParent_ = id;
 }
 
-template< class PoseType >
-void Particle<PoseType>::copyStateTo(Particle<PoseType>* p){
+template< class PoseType, class DataType >
+void Particle<PoseType, DataType>::copyStateTo(Particle<PoseType, DataType>* p){
   p->x_k_i_ = x_k_i_;
 }
+
+template< class PoseType, class DataType >
+void Particle<PoseType, DataType>::copyDataTo(Particle<PoseType, DataType>* p){
+  if( data_ != NULL )
+    p->data_ = new DataType( *data_ );
+}
+
+
+template< class PoseType, class DataType >
+DataType* Particle<PoseType, DataType>::getData(){
+  return data_;
+}
+
+template< class PoseType, class DataType >
+void Particle<PoseType, DataType>::setData(DataType* dataPtr){
+  data_ = dataPtr;
+}
+
+template< class PoseType, class DataType >
+void Particle<PoseType, DataType>::deleteData(){
+  if( data_ != NULL ){
+    delete data_;
+    data_ = NULL;
+  }
+}
+  
+}  
 
 #endif

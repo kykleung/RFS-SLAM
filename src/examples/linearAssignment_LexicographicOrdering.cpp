@@ -28,59 +28,53 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "Pose.hpp"
 
-namespace rfs{
+/** This example shows how lexicographic ordering for pairing landmarks and measurements
+ *  can be performed when we have clutter and mis-detections. 
+ */
 
-/********** Implementation of 1d vechile position state ***********/
+#include <stdio.h>
+#include <vector>
+#include <algorithm>
+#include <utility>
+#include "CostMatrix.hpp"
+#include "PermutationLexicographic.hpp"
 
-Pose1d::Pose1d(){}
+#include <boost/timer/timer.hpp>
+#include <boost/format.hpp>
 
-Pose1d::Pose1d(double x, double Sx, const TimeStamp &t){
-  Vec state;
-  Mat cov;
-  state << x;
-  cov << Sx;
-  set(state, cov, t);
+#include <boost/random/mersenne_twister.hpp>
+#include <boost/random/uniform_01.hpp>
+#include <boost/random/variate_generator.hpp>
+
+using namespace rfs;
+
+int main(int argc, char *argv[])
+{
+
+  printf("5 landmarks and 3 measurements\n");
+  printf("First 5 columns indicate the measurement number to which the landmark is associated\n");
+  printf("A value == 3 in the first 5 columns imply that a landmark was mis-detected\n");
+  printf("A value == 3 in the last 3 columns represent that the measurement is an outlier\n\n");
+
+  unsigned int const nM = 3;
+  unsigned int const nZ = 5;
+  uint* ordering = new uint[nM + nZ];
+ 
+  PermutationLexicographic pl(nM, nZ, true);
+  unsigned int nPerm = pl.next(ordering);
+  while( nPerm != 0){
+    printf("[%d] %d %d %d | %d %d %d %d %d ", nPerm, ordering[0], ordering[1], ordering[2], ordering[3], ordering[4], ordering[5], ordering[6], ordering[7]);
+
+    printf("| Outliers: ");
+    for(int i = nM; i < nM + nZ; i++){
+      if(ordering[i] < nZ)
+	printf("%d ",ordering[i]);
+    }
+    printf("\n");
+    nPerm = pl.next(ordering);
+  }
+  
+  delete[] ordering;
+  return 0;
 }
-
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const ::Eigen::Matrix<double, 1, 1> &Sx, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, Sx, t){}
-
-Pose1d::Pose1d(double x, const TimeStamp &t){
-  Vec state;
-  state << x;
-  set(state, t);
-}
-
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, t){}
-
-
-/********** Implementation of 2d vehicle pose state **********/
-
-Pose2d::Pose2d(){}
-
-Pose2d::Pose2d(const Vec &x, const Mat &Sx, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, Sx, t){}
-
-Pose2d::Pose2d(const Vec &x, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, t){}
-
-Pose2d::Pose2d( double x, double y, double theta, 
-		double var_x, double var_y, double var_theta,
-		const TimeStamp &t ){
-  Vec state;
-  state << x, y, theta;
-  Mat cov;
-  cov << 
-    var_x, 0, 0,
-    0, var_y, 0,
-    0, 0, var_theta;
-  set(state, cov, t);
-}
-
-Pose2d::~Pose2d(){}
-
-}
-

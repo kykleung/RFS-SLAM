@@ -28,59 +28,40 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "Pose.hpp"
+// Class for using the Kalman filter equations
+// Felipe Inostroza 2013, Keith Leung 2014
 
-namespace rfs{
+#include "KalmanFilter_RngBrg.hpp"
 
-/********** Implementation of 1d vechile position state ***********/
+namespace rfs
+{
 
-Pose1d::Pose1d(){}
-
-Pose1d::Pose1d(double x, double Sx, const TimeStamp &t){
-  Vec state;
-  Mat cov;
-  state << x;
-  cov << Sx;
-  set(state, cov, t);
+KalmanFilter_RngBrg::KalmanFilter_RngBrg(){
+  config.rangeInnovationThreshold_ = -1;
+  config.bearingInnovationThreshold_ = -1;
+};
+  
+KalmanFilter_RngBrg::KalmanFilter_RngBrg(StaticProcessModel<Landmark2d> *pProcessModel,
+						   MeasurementModel_RngBrg *pMeasurementModel):
+  KalmanFilter<StaticProcessModel<Landmark2d>, MeasurementModel_RngBrg>
+  (pProcessModel, pMeasurementModel){
+  config.rangeInnovationThreshold_ = -1;
+  config.bearingInnovationThreshold_ = -1;
 }
 
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const ::Eigen::Matrix<double, 1, 1> &Sx, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, Sx, t){}
-
-Pose1d::Pose1d(double x, const TimeStamp &t){
-  Vec state;
-  state << x;
-  set(state, t);
+bool KalmanFilter_RngBrg::calculateInnovation(Vec &z_exp, Vec &z_act, Vec &z_innov){
+    
+  z_innov = z_act - z_exp;
+  
+  if(config.rangeInnovationThreshold_ > 0 && fabs(z_innov(0)) > config.rangeInnovationThreshold_)
+    return false;
+  while(z_innov(1) > PI)
+    z_innov(1) -= 2 * PI;
+  while(z_innov(1) < -PI)
+    z_innov(1) += 2 * PI;
+  if(config.bearingInnovationThreshold_ > 0 && fabs(z_innov(1) > config.bearingInnovationThreshold_) )
+    return false;
+  return true;
 }
-
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, t){}
-
-
-/********** Implementation of 2d vehicle pose state **********/
-
-Pose2d::Pose2d(){}
-
-Pose2d::Pose2d(const Vec &x, const Mat &Sx, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, Sx, t){}
-
-Pose2d::Pose2d(const Vec &x, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, t){}
-
-Pose2d::Pose2d( double x, double y, double theta, 
-		double var_x, double var_y, double var_theta,
-		const TimeStamp &t ){
-  Vec state;
-  state << x, y, theta;
-  Mat cov;
-  cov << 
-    var_x, 0, 0,
-    0, var_y, 0,
-    0, 0, var_theta;
-  set(state, cov, t);
+  
 }
-
-Pose2d::~Pose2d(){}
-
-}
-

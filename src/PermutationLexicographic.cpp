@@ -1,7 +1,7 @@
 /*
  * Software License Agreement (New BSD License)
  *
- * Copyright (c) 2013, Keith Leung, Felipe Inostroza
+ * Copyright (c) 2013, Keith Leung
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -28,59 +28,71 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "Pose.hpp"
+#include "PermutationLexicographic.hpp"
+#include <algorithm>
+#include <stdio.h>
 
-namespace rfs{
+namespace rfs
+{
 
-/********** Implementation of 1d vechile position state ***********/
+PermutationLexicographic::PermutationLexicographic(unsigned int nM, 
+						   unsigned int nZ, 
+						   bool includeClutter) : nM_(nM), nZ_(nZ), nP_(0), last_(false)
+{
 
-Pose1d::Pose1d(){}
+  if(nM != nZ)
+    includeClutter = true;
+  
+  oSize_ = 0;
+  if(includeClutter == false){
+    oSize_ = nM;
+  }else{
+    oSize_ = nM + nZ;
+  }
 
-Pose1d::Pose1d(double x, double Sx, const TimeStamp &t){
-  Vec state;
-  Mat cov;
-  state << x;
-  cov << Sx;
-  set(state, cov, t);
+  o_ = new unsigned int[oSize_];
+  for(int i = 0; i < oSize_; i++){
+    if( i < nZ )
+      o_[i] = i;
+    else
+      o_[i] = nZ;
+  }
+  
+  
 }
 
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const ::Eigen::Matrix<double, 1, 1> &Sx, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, Sx, t){}
+PermutationLexicographic::~PermutationLexicographic(){
 
-Pose1d::Pose1d(double x, const TimeStamp &t){
-  Vec state;
-  state << x;
-  set(state, t);
-}
-
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, t){}
-
-
-/********** Implementation of 2d vehicle pose state **********/
-
-Pose2d::Pose2d(){}
-
-Pose2d::Pose2d(const Vec &x, const Mat &Sx, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, Sx, t){}
-
-Pose2d::Pose2d(const Vec &x, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, t){}
-
-Pose2d::Pose2d( double x, double y, double theta, 
-		double var_x, double var_y, double var_theta,
-		const TimeStamp &t ){
-  Vec state;
-  state << x, y, theta;
-  Mat cov;
-  cov << 
-    var_x, 0, 0,
-    0, var_y, 0,
-    0, 0, var_theta;
-  set(state, cov, t);
-}
-
-Pose2d::~Pose2d(){}
+  delete[] o_;
 
 }
 
+unsigned int PermutationLexicographic::next(unsigned int* permutation){
+
+  if(last_){
+    for(int i = 0; i < oSize_; i++){
+      permutation[i] = 0;
+    } 
+    return 0;
+  }
+
+  for(int i = 0; i < oSize_; i++){
+    permutation[i] = o_[i];
+  }
+    
+  unsigned int u = nM_;
+  unsigned int v = oSize_ - 1;
+
+  while(u < v){ // Fast forward permutations to the next meaningful one
+    std::swap(o_[u], o_[v]);
+    u++;
+    v--;
+  }
+  
+  last_ = !std::next_permutation(o_, o_ + oSize_);
+  nP_++;
+  return nP_;
+
+}
+
+}

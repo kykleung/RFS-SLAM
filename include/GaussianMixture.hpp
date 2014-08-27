@@ -34,8 +34,9 @@
 #include <algorithm>
 #include <iostream>
 #include "Landmark.hpp"
-#include "RandomVecMathTools.hpp"
 #include <vector>
+
+namespace rfs{
 
 /** 
  * \class GaussianMixture
@@ -64,6 +65,9 @@ public:
   
   /** Default constructor */
   GaussianMixture();
+
+  /** Copy constructor */
+  GaussianMixture(const GaussianMixture& other);
   
   /** Destructor */
   ~GaussianMixture();
@@ -98,6 +102,12 @@ public:
    * \return count 
    */
   unsigned int getGaussianCount();
+
+  /** 
+   * Get the sum of all Gaussian weights 
+   * \reuturn sum
+   */
+  double getWeightSum();
 
   /**
    * Set the weight of a Gaussian indicated by the given index
@@ -222,6 +232,18 @@ GaussianMixture<Landmark>::GaussianMixture(){
 }
 
 template< class Landmark >
+GaussianMixture<Landmark>::GaussianMixture(const GaussianMixture& other):
+n_(other.n_), isSorted_(other.isSorted_)
+{
+  gList_ = other.gList_;
+  for(int i = 0; i < gList_.size(); i++){
+    Landmark* lmkCopy = new Landmark;
+    *lmkCopy = *(other.gList_[i].landmark);
+    gList_[i].landmark = lmkCopy; 
+  }
+}
+
+template< class Landmark >
 GaussianMixture<Landmark>::~GaussianMixture(){
 
   for( int i = 0; i < gList_.size(); i++){
@@ -306,6 +328,15 @@ unsigned int GaussianMixture<Landmark>::getGaussianCount(){
 }
 
 template< class Landmark >
+double GaussianMixture<Landmark>::getWeightSum(){
+  double sum = 0;
+  for(int i = 0; i < n_; i++){
+    sum += gList_[i].weight;
+  }
+  return sum;
+}
+
+template< class Landmark >
 void GaussianMixture<Landmark>::setWeight( unsigned int idx, double w ){
   isSorted_ = false;
   gList_[idx].weight_prev = gList_[idx].weight;
@@ -369,6 +400,9 @@ unsigned int GaussianMixture<Landmark>::merge(const double t,
 
   for(unsigned int i = 0; i < nGaussians; i++){
    
+    if(gList_[i].landmark == NULL)
+      continue;
+
     for(unsigned int j = i+1; j < nGaussians; j++){
 
       if( merge(i, j, t, f_inflation) ){
@@ -469,8 +503,10 @@ unsigned int GaussianMixture<Landmark>::prune( const double t ){
     idx = (unsigned int)( (max_idx + min_idx) / 2 );
     w = gList_[idx].weight;
   }
-  while( w >= t && idx < gList_.size() - 1 ){
+  while( w >= t ){
     idx++;
+    if(idx >= gList_.size())
+      break;
     w = gList_[idx].weight;
   }
   idx_old = idx; 
@@ -479,7 +515,7 @@ unsigned int GaussianMixture<Landmark>::prune( const double t ){
     idx++;
     nPruned++;
   }
-  gList_.resize(idx_old); 
+  gList_.resize( gList_.size() - nPruned); 
 
   return nPruned;
 }
@@ -495,6 +531,8 @@ void GaussianMixture<Landmark>::sortByWeight(){
 template< class Landmark >
 bool GaussianMixture<Landmark>::weightCompare(Gaussian a, Gaussian b){
   return a.weight > b.weight;
+}
+
 }
 
 #endif

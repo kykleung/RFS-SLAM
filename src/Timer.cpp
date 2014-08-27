@@ -1,7 +1,7 @@
 /*
  * Software License Agreement (New BSD License)
  *
- * Copyright (c) 2013, Keith Leung, Felipe Inostroza
+ * Copyright (c) 2013, Keith Leung
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -28,59 +28,40 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "Pose.hpp"
+#include "Timer.hpp"
+#include <boost/lexical_cast.hpp>
 
-namespace rfs{
+namespace rfs
+{
 
-/********** Implementation of 1d vechile position state ***********/
-
-Pose1d::Pose1d(){}
-
-Pose1d::Pose1d(double x, double Sx, const TimeStamp &t){
-  Vec state;
-  Mat cov;
-  state << x;
-  cov << Sx;
-  set(state, cov, t);
+Timer::Timer(){
+  timer_.stop();
 }
 
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const ::Eigen::Matrix<double, 1, 1> &Sx, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, Sx, t){}
+Timer::~Timer(){}
 
-Pose1d::Pose1d(double x, const TimeStamp &t){
-  Vec state;
-  state << x;
-  set(state, t);
+void Timer::start(){
+  timer_.start();
 }
 
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, t){}
-
-
-/********** Implementation of 2d vehicle pose state **********/
-
-Pose2d::Pose2d(){}
-
-Pose2d::Pose2d(const Vec &x, const Mat &Sx, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, Sx, t){}
-
-Pose2d::Pose2d(const Vec &x, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, t){}
-
-Pose2d::Pose2d( double x, double y, double theta, 
-		double var_x, double var_y, double var_theta,
-		const TimeStamp &t ){
-  Vec state;
-  state << x, y, theta;
-  Mat cov;
-  cov << 
-    var_x, 0, 0,
-    0, var_y, 0,
-    0, 0, var_theta;
-  set(state, cov, t);
+void Timer::stop(){
+  timer_.stop();
 }
 
-Pose2d::~Pose2d(){}
-
+void Timer::resume(){
+  timer_.resume();
 }
 
+void Timer::elapsed(std::string &t_wall, std::string &t_cpu){
+  ::boost::timer::cpu_times dt = timer_.elapsed();
+  t_wall = ::boost::lexical_cast<std::string>( dt.wall );
+  t_wall = ::boost::lexical_cast<std::string>( dt.user + dt.system );
+}
+
+void Timer::elapsed(long long &t_wall, long long &t_cpu){
+  ::boost::timer::cpu_times dt = timer_.elapsed();
+  t_wall = dt.wall;
+  t_cpu = dt.user + dt.system;
+}
+
+}

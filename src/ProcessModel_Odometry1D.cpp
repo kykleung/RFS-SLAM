@@ -28,59 +28,29 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "Pose.hpp"
+#include "ProcessModel_Odometry1D.hpp"
 
-namespace rfs{
+using namespace rfs;
 
-/********** Implementation of 1d vechile position state ***********/
+MotionModel_Odometry1d::MotionModel_Odometry1d( Pose1d::Mat &Q ) : ProcessModel(Q) {}
 
-Pose1d::Pose1d(){}
+void MotionModel_Odometry1d::step ( Pose1d &s_k, Pose1d &s_km, Odometry1d &input_k, 
+				   TimeStamp const &dT){
 
-Pose1d::Pose1d(double x, double Sx, const TimeStamp &t){
-  Vec state;
-  Mat cov;
-  state << x;
-  cov << Sx;
-  set(state, cov, t);
-}
+  Pose1d::Vec x_km_; /**< position at k-1 */
+  Pose1d::Vec x_k_;  /**< position at k */
+  Odometry1d::Vec u_k_; /**< odometry from k-1 to k */
 
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const ::Eigen::Matrix<double, 1, 1> &Sx, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, Sx, t){}
+  /* k - 1 */
+  s_km.get(x_km_);
 
-Pose1d::Pose1d(double x, const TimeStamp &t){
-  Vec state;
-  state << x;
-  set(state, t);
-}
+  /* odometry */
+  input_k.get(u_k_);
 
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, t){}
+  /* step forward */
+  x_k_ = x_km_ + u_k_;
 
-
-/********** Implementation of 2d vehicle pose state **********/
-
-Pose2d::Pose2d(){}
-
-Pose2d::Pose2d(const Vec &x, const Mat &Sx, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, Sx, t){}
-
-Pose2d::Pose2d(const Vec &x, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, t){}
-
-Pose2d::Pose2d( double x, double y, double theta, 
-		double var_x, double var_y, double var_theta,
-		const TimeStamp &t ){
-  Vec state;
-  state << x, y, theta;
-  Mat cov;
-  cov << 
-    var_x, 0, 0,
-    0, var_y, 0,
-    0, 0, var_theta;
-  set(state, cov, t);
-}
-
-Pose2d::~Pose2d(){}
+  /* write state at k */
+  s_k.set(x_k_);
 
 }
-

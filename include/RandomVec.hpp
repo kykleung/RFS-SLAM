@@ -34,7 +34,7 @@
 #ifndef STATE_HPP
 #define STATE_HPP
 
-
+#include <assert.h>
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/variate_generator.hpp>
@@ -44,6 +44,12 @@
 //#include <Eigen/StdVector>
 #include <iostream>
 #include <stdio.h>
+#include "TimeStamp.hpp"
+
+
+namespace rfs
+{
+
 
 double const PI = acos(-1);
 
@@ -79,7 +85,8 @@ public:
     }
     x_.setZero();
     Sx_.setZero();
-    t_ = -1;
+    t_.sec = -1;
+    t_.nsec = 0;
 
   }
 
@@ -89,7 +96,7 @@ public:
    * \param[in] Sx covariance
    * \param[in] t time
    */
-  RandomVec(VecType x, MatType Sx, double t = -1) : 
+  RandomVec(const VecType x, const MatType Sx, const TimeStamp t = TimeStamp() ) :
     isValid_Sx_L_(false), 
     isValid_Sx_inv_(false),
     isValid_Sx_det_(false),
@@ -109,7 +116,7 @@ public:
    * \param[in] x vector
    * \param[in] t time
    */
-  RandomVec(VecType x, double t = -1) : 
+  RandomVec(const VecType x, const TimeStamp t = TimeStamp()) :
     isValid_Sx_L_(false), 
     isValid_Sx_inv_(false),
     isValid_Sx_det_(false),
@@ -172,16 +179,24 @@ public:
   };
 
   /** 
+   * [] Operator
+   */
+  double& operator[] (const int n){ 
+    assert(n >= 0 && n < nDim_);
+    return x_(n);
+  }
+
+  /** 
    * Set the vector
    * \param[in] x vector to be set
    */
-  void set( VecType &x ){x_ = x;}
+  void set( const VecType &x ){x_ = x;}
 
   /** 
    * Set the covariance for uncertainty
    * \param[in] Sx uncertainty to be set
    */
-  void setCov( MatType &Sx){
+  void setCov( const MatType &Sx){
     Sx_ = Sx;
     isValid_Sx_L_ = false; 
     isValid_Sx_inv_ = false;
@@ -192,7 +207,7 @@ public:
    * Set the time
    * \param[in] t time
    */
-  void setTime( double t ){
+  void setTime( const TimeStamp &t ){
     t_ = t;
   }
 
@@ -201,7 +216,7 @@ public:
    * \param[in] x vector to be set
    * \param[in] Sx covariance to be set
    */
-  void set( VecType &x, MatType &Sx){
+  void set( const VecType &x, const MatType &Sx){
     set(x);
     setCov(Sx);
   }
@@ -211,7 +226,7 @@ public:
    * \param[in] x vector to be set
    * \param[in] t time
    */
-  void set( VecType &x, double t){
+  void set( const VecType &x, const TimeStamp &t){
     set(x);
     t_ = t;
   }
@@ -222,24 +237,35 @@ public:
    * \param[in] Sx covariance to be set
    * \param[in] t time
    */
-  void set( VecType &x, MatType &Sx, double t){
+  void set( const VecType &x, const MatType &Sx, const TimeStamp &t){
     set(x);
     setCov(Sx);
     t_ = t;
   }
 
+  /**
+   * Get the vector
+   * \return x vector
+   */
+  VecType get() const { return x_;}
 
   /** 
    * Get the vector
    * \param[out] x vector
    */
-  void get( VecType &x ){x = x_;}
+  void get( VecType &x ) const {x = x_;}
+
+  /**
+   * Get the covariance matrix
+   * \return Sx covariance representing the uncertainty
+   */
+  MatType getCov() const { return Sx_; }
 
   /** 
    * Get the covariance matrix
-   * \param[out] Sx uncertainty 
+   * \param[out] Sx uncertainty representing the uncertainty 
    */
-  void getCov( MatType &Sx){
+  void getCov( MatType &Sx) const {
     Sx = Sx_;
   }
 
@@ -250,7 +276,7 @@ public:
    */
   void getCovCholeskyDecompLower( MatType &Sx_Chol_L){
     if(!isValid_Sx_L_){
-      Eigen::LLT<MatType> cholesky( Sx_ );
+      ::Eigen::LLT<MatType> cholesky( Sx_ );
       Sx_L_ = cholesky.matrixL();
       isValid_Sx_L_ = true;
     }
@@ -286,7 +312,7 @@ public:
    * \param[out] x vector
    * \param[out] Sx uncertainty
    */
-  void get( VecType &x, MatType &Sx){
+  void get( VecType &x, MatType &Sx) const {
     get(x);
     getCov(Sx);
   }
@@ -296,7 +322,7 @@ public:
    * \param[out] x vector
    * \param[out] t time
    */
-  void get( VecType &x, double &t){
+  void get( VecType &x, TimeStamp &t) const {
     get(x);
     t = t_;
   }
@@ -307,7 +333,7 @@ public:
    * \param[out] Sx uncertainty
    * \param[out] t time
    */
-  void get( VecType &x, MatType &Sx, double &t){
+  void get( VecType &x, MatType &Sx, TimeStamp &t) const {
     get(x);
     getCov(Sx);
     t = t_;
@@ -318,13 +344,13 @@ public:
    * \param[in] n element index
    * \return element n
    */
-  double get( int n ){ return x_(n);}
+  double get( const int n ) const { return x_(n);}
 
   /**
    * Get the time
    * \return time
    */
-  double getTime(){
+  TimeStamp getTime() const {
     return t_;
   }
 
@@ -332,7 +358,7 @@ public:
    * Get the dimension
    * \return dimension
    */ 
-  unsigned int getNDim(){ return nDim_; }
+  unsigned int getNDim() const { return nDim_; }
 
   /**
    * Calculate the squared Mahalanobis distance to another random vector of the same type
@@ -363,17 +389,18 @@ public:
   /**
    * Calculate the Gaussian likelihood of a given evaluation point
    * \param[in] x_eval the evaluation point
-   * \param[out] if not NULL, the pointed to variable will be overwritten by the 
+   * \param[out] mDist2 if not NULL, the pointed to variable will be overwritten by the 
    * squared mahalanobis distance used to calculate the likelihood
    */ 
   double evalGaussianLikelihood( RandomVec<VecType, MatType> &x_eval,
 				 double* mDist2 = NULL){
     if(!isValid_Sx_det_){
       Sx_det_ = Sx_.determinant();
+      gaussian_pdf_factor_ = sqrt( pow( 2*PI, nDim_ ) * Sx_det_ );
       isValid_Sx_det_ = true;
     }
     double md2 = mahalanobisDist2( x_eval );
-    double l = ( exp(-0.5 * md2 ) / sqrt( pow( 2*PI, nDim_ ) * Sx_det_ ) );
+    double l = ( exp(-0.5 * md2 ) / gaussian_pdf_factor_ );
     if( l != l) //If md2 is very large, l will become NAN;
       l = 0;
     if(mDist2 != NULL)
@@ -384,17 +411,18 @@ public:
   /**
    * Calculate likelihood
    * \param[in] x_eval the evaluation point
-   * \param[out] if not NULL, the pointed to variable will be overwritten by the 
+   * \param[out] mDist2 if not NULL, the pointed to variable will be overwritten by the 
    * squared mahalanobis distance used to calculate the likelihood
    */ 
   double evalGaussianLikelihood( typename RandomVec<VecType, MatType>::Vec &x_eval,
 				 double* mDist2 = NULL){
     if(!isValid_Sx_det_){
       Sx_det_ = Sx_.determinant();
+      gaussian_pdf_factor_ = sqrt( pow( 2*PI, nDim_ ) * Sx_det_ );
       isValid_Sx_det_ = true;
     }
     double md2 = mahalanobisDist2( x_eval );
-    double l = ( exp(-0.5 * md2 ) / sqrt( pow( 2*PI, nDim_ ) * Sx_det_ ) );
+    double l = ( exp(-0.5 * md2 ) / gaussian_pdf_factor_ );
     if( l != l) //If md2 is very large, l will become NAN;
       l = 0;
     if(mDist2 != NULL)
@@ -411,15 +439,15 @@ public:
     VecType x_sample, indep_noise;
 
     if(!isValid_Sx_L_){
-      Eigen::LLT<MatType> cholesky( Sx_ );
+      ::Eigen::LLT<MatType> cholesky( Sx_ );
       Sx_L_ = cholesky.matrixL();
       isValid_Sx_L_ = true;
     }
 
     if(gen_ == NULL){
-      gen_ = new boost::variate_generator< boost::mt19937, 
-					   boost::normal_distribution<double> >
-	(boost::mt19937(rand()), boost::normal_distribution<double>());
+      gen_ = new ::boost::variate_generator< ::boost::mt19937, 
+					     ::boost::normal_distribution<double> >
+	(::boost::mt19937(rand()), ::boost::normal_distribution<double>());
     }
     
     int n = Sx_L_.cols();
@@ -440,15 +468,15 @@ public:
     VecType x_sample, indep_noise;
 
     if(!isValid_Sx_L_){
-      Eigen::LLT<MatType> cholesky( Sx_ );
+      ::Eigen::LLT<MatType> cholesky( Sx_ );
       Sx_L_ = cholesky.matrixL();
       isValid_Sx_L_ = true;
     }
 
     if(gen_ == NULL){
-      gen_ = new boost::variate_generator< boost::mt19937, 
-					   boost::normal_distribution<double> >
-	(boost::mt19937(rand()), boost::normal_distribution<double>());
+      gen_ = new ::boost::variate_generator< ::boost::mt19937, 
+					     ::boost::normal_distribution<double> >
+	(::boost::mt19937(rand()), ::boost::normal_distribution<double>());
     }
     
     int n = Sx_L_.cols();
@@ -467,15 +495,16 @@ private:
   MatType Sx_inv_; /**< Inverse covariance */
   bool isValid_Sx_inv_; /**< Inverse covariance is up to date */
   double Sx_det_; /**< Determinant of Sx_ */
+  double gaussian_pdf_factor_; /**< \f[ \sqrt{ (2\pi)^n)|\Sigma| } \f]*/
   bool isValid_Sx_det_; /**< Determinant of Sx_ is up to date */
   MatType Sx_L_; /**< Lower triangular part of Cholesky decomposition on Sx_ */
   bool isValid_Sx_L_; /**< Lower triangular part of Cholesky decomposition on Sx_ is up to date */
-  double t_; /**< time */
+  TimeStamp t_; /**< timestamp */
 
   VecType e_; /**< temporary */
 
-  boost::variate_generator< boost::mt19937, 
-			    boost::normal_distribution<double> >* gen_;/**< normal distribution random number generator */ 
+  ::boost::variate_generator< ::boost::mt19937, 
+			      ::boost::normal_distribution<double> >* gen_;/**< normal distribution random number generator */ 
 
   /** Dimensionality check during initialization */
   bool dimCheck(){
@@ -493,5 +522,7 @@ private:
   }
 
 };
+
+} // namespace rfs
 
 #endif

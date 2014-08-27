@@ -1,7 +1,7 @@
 /*
  * Software License Agreement (New BSD License)
  *
- * Copyright (c) 2013, Keith Leung, Felipe Inostroza
+ * Copyright (c) 2013, Keith Leung
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -28,77 +28,55 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Landmark classes for defining map feature state
-// Keith Leung 2013
+#ifndef PERMUTATION_LEXICOGRAPHIC
+#define PERMUTATION_LEXICOGRAPHIC
 
-#ifndef LANDMARK_HPP
-#define LANDMARK_HPP
+namespace rfs{
 
-#include "RandomVec.hpp"
-
-namespace rfs
-{
-
-/** 
- * \class Landmark
- * \brief An abstract class for defining landmark state
- * \author Keith Leung
+/**
+ * \class PermutationLexicographic
+ * A class for generating assingments based on lexicographic ordering with or without clutter.
+ * This class is mainly intended for assignments of measurements to landmarks, where measurements
+ * can be outliers (i.e., non-associated with a landmark), and landmarks can be miss-detected
+ * (i.e., not associated with a measurement)
+ * \brief Generate lexicographical ordering
  */
-
-template<class VecType, class MatType, class DescriptorType = int>
-class Landmark : public RandomVec<VecType, MatType>
+class PermutationLexicographic
 {
 public:
-
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-  /** Default constructor */
-  Landmark(){}
-
-  /** 
-   * Constructor
+  
+  /**
+   * Constructor 
+   * \param[in] nM number of landmarks
+   * \param[in] nZ number of measurements
+   * \param[in] includeClutter if true, considers linear assignments with clutter and miss-detections. 
+   * This will default to true if nM and nZ are not the same
    */
-  Landmark(VecType &x, MatType &Sx){
-    this->set(x, Sx);
-  }
+  PermutationLexicographic(unsigned int nM, unsigned int nZ, bool includeClutter = true);
 
-  /** 
-   * Constructor
+  /**
+   * Destructor 
    */
-  Landmark(VecType &x, MatType &Sx, DescriptorType &d){
-    this->set(x, Sx);
-    desc_ = d;
-  }
+  ~PermutationLexicographic();
 
-  /** Default destructor */
-  ~Landmark(){};
-
-  /** Set descriptor for landmark 
-   *  \param[in] d descriptor
+  /**
+   * Find the next permutation in the lexicographic ordering
+   * \param[out] permutation pointer to an array for reading the current permutation. 
+   * Memory should be allocated by the caller. The size of the array needs to be nM if includeClutter = false,
+   * and nM + nZ if includeClutter is true.
+   * \return permutation number or 0 if there are no permutations remaining
    */
-  void setDescriptor(DescriptorType &d){
-    desc_ = d;
-  }
-
-  /** Get descriptor for landmark 
-   *  \param[in] d descriptor
-   */
-  void getDescriptor(DescriptorType &d){
-    d = desc_;
-  }
+  unsigned int next(unsigned int* permutation);
 
 private:
-  
-  DescriptorType desc_;
 
+  unsigned int* o_; /**< ordering */
+  unsigned int oSize_; /**< size of array o_ */
+  unsigned int nM_; /**< number of landmarks */
+  unsigned int nZ_; /**< number of measurements */
+  unsigned int nP_; /**< number of permutations */
+  bool last_; /**< last permutation reached */
 };
-
-  typedef Landmark< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >
-Landmark1d;
-
-  typedef Landmark< ::Eigen::Vector2d, ::Eigen::Matrix2d> Landmark2d;
-
-  typedef Landmark< ::Eigen::Vector3d, ::Eigen::Matrix3d> Landmark3d;
 
 }
 

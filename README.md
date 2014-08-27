@@ -1,7 +1,7 @@
 /*
  * Software License Agreement (New BSD License)
  *
- * Copyright (c) 2013, Keith Leung, Felipe Inostroza
+ * Copyright (c) 2014, Keith Leung, Felipe Inostroza
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -30,55 +30,90 @@
 
 The main purpose of this RB-PHD Filter library is promote research in random
 finite set (RFS) estimation methods for the problem of simultaneous localization
-and mapping (SLAM). The intention of the authors, Keith and Felipe, is to keep
-the library general in the sense that users can define system models that are
-relevant to their specific problem, while not having to program and test their
-own implementation of the RB-PHD filter. We have also provided some generic vehicle
-motion models and measurement models. This library is an on-going project, 
-and we intend to update it with new improvements whenever possible. Of course, 
-any feedback will be appreciated. 
+and mapping (SLAM). The intention of the authors is to keep the library general 
+in the sense that users can define system models that are relevant to their 
+specific problem, while not having to program and test their own implementation 
+of RFS filters. This library is an on-going project, and we intend to update it 
+when any related work is published. Any feedback will be appreciated. 
 
-While we have completed the documentation for all the individual classes and
-functions in this library, we are still lacking a document to explain how 
-everything fits together (although we plan to have this ready in the near
-future). For those who wants to use the current version of the library, the
-2d simulation that is included will provide some guidance of the necessary steps
-to get things to work. We have also included some Matlab scripts for visualizing
-the results from the simulator. 
+============================ VERSION HISTORY ==============================
 
-Please note that we have only tested the library in Ubuntu 13.04.
+1.0 - Initial release
 
-To get started, make sure that you have the following libraries installed:
+1.1
+  - RB-PHD SLAM algorithm updates:
+    - included multi-feature particle importance weighting strategy
+    - included single-cluster (SC)-PHD SLAM weighting strategy
+  - new FastSLAM and MH-FastSLAM algorithms included 
+  - updated 2-D simulations
+  - new Optimal Sub-Pattern Assignment (OSPA) error metric class 
+  - visualization tools are now in Python instead of Matlab
+  - introduced namespace rfs to the library
+  - some updates made to naming convention of classes in the library
+  - cmake now generates rfsslam-config.cmake to enable find(rfsslam)
+    from other projects
 
-Boost::math_c99 (version 1.48 or higher)
-Boost::timer (version 1.48 or higher)
-Boost::system (version 1.48 or higher)
-Boost::thread (version 1.48 or higher)
-Eigen3
-libconfig (This is only necessary for the simulator)
+============================= INSTALLATION =================================
 
-Compiling for parts of the library and the 2d Simulator can be done with cmake.
-We have provided a CMakeLists.txt already. To compile, run:
+This library has been tested under Ubuntu 13.04, 13.10, and 14.04.
 
-cmake .
-make
+Prerequisite Libraries:
+  Boost (version 1.53 minimum) with components:
+    math_c99, timer, system, thread, filesystem, graph 
+  Eigen (version 3.0.0 minimum)
+
+Optional Libraries:
+  libconfig (for the 2-D SLAM simulators)
+  python-numpy (for visualizing 2-D SLAM results)
+  python-matplotlib (for visualizing 2-D SLAM results)
+    
+Compile the library and the 2d Simulator using cmake. Run:
+
+  cmake .
+  make
+  make install (option, and produces install_manifest.txt)
+     
+============================== DOCUMENTATION =================================
 
 Documentations can be generated using Doxygen, and we have provided a Doxyfile
-(configuration file). To generate the html and pdf documentations, run:
+(configuration file). To generate the html and pdf documentations in the doc
+directory, run:
 
-doxygen
+  doxygen
 
-The executable for the 2d simulator should be located in bin/sim2d. There is 
-a configuration file for the simulator in cfg/simulator2d.cfg, where many
-settings such as the length of the simulation, the number of landmarks, 
-measurement noise, etc, can be modified. To start the simulator, run:
+============================= 2-D SLAM EXAMPLES ===============================
 
-bin/sim2d <NUM>
+* SLAM Filters
 
-where <NUM> is a seed for the random number generators that are used. Logging
-of the results can be turned on in simulation2d.cfg. Under the tools directory,
-there is a Matlab script for viewing the results. 
+Rao-Blackwellized Probability Hypothesis Density (RB-PHD) SLAM 2-D Simulation
+  Source: src/rbphdslam2dSim.cpp
+  Config: cfg/rbphdslam2dSim.cfg
+  Run: bin/rbphdslam2dSim [random_seed=0] [cfg_file=cfg/rbphdslam2dSim.cfg]
 
+Factored Solution to SLAM (FastSLAM 1.0) 2-D Simulation
+  Source: src/fastslam2dSim.cpp 
+  Config: cfg/fastslam2dSim.cfg
+  Run: bin/fastslam2dSim [random_seed=0] [cfg_file=cfg/fastslam2dSim.cfg]
+
+Multi-Hypothesis Factored Solution to SLAM (MH FastSLAM) 2-D Simulation
+  Source: src/fastslam2dSim.cpp 
+  Config: cfg/mhfastslam2dSim.cfg
+  Run: bin/fastslam2dSim [random_seed=0] [cfg_file=cfg/mhfastslam2dSim.cfg]
+
+* Visualization Tools
+
+Animation
+  Source: bin/animate2dSim.py
+  Config: edit bin/animate2dSim.py directly
+  Run: bin/animate2dSim.py [results_dir]
+
+
+================================ FUTURE WORK ===================================
+
+- Remove dependency on libconfig, and switch to boost::program_option
+- Multi-threaded versions of SLAM algorithms
+- Cardinalized Probability Hypothesis Density (CPHD) filter
+- Multi-Bernoulli filter
 
 
 

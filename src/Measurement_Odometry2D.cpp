@@ -28,59 +28,41 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "Pose.hpp"
+#include "Measurement.hpp"
 
-namespace rfs{
+namespace rfs
+{
 
-/********** Implementation of 1d vechile position state ***********/
+/********** Implementation of example 2d odometry measurement **********/
 
-Pose1d::Pose1d(){}
+Odometry2d::Odometry2d(){}
 
-Pose1d::Pose1d(double x, double Sx, const TimeStamp &t){
-  Vec state;
-  Mat cov;
-  state << x;
-  cov << Sx;
-  set(state, cov, t);
+Odometry2d::Odometry2d(Vec &x, Mat &Sx, TimeStamp t) : 
+  RandomVec< Eigen::Vector3d, Eigen::Matrix3d >(x, Sx, t){}
+
+Odometry2d::Odometry2d(Vec &x, TimeStamp t) : 
+  RandomVec< Eigen::Vector3d, Eigen::Matrix3d >(x, t){}
+
+Odometry2d::Odometry2d(double dx_k_km, double dy_k_km, double dtheta_k_km, 
+		       double vardx_k_km, double vardy_k_km, 
+		       double vartheta_k_km, TimeStamp t) {
+  Eigen::Vector3d u;
+  Eigen::Vector3d covu_diag; 
+  Eigen::Matrix3d covu;
+  u << dx_k_km, dy_k_km, dtheta_k_km;
+  covu_diag << vardx_k_km, vardy_k_km, vartheta_k_km;
+  covu = covu_diag.asDiagonal();
+
+  set( u, covu, t);
 }
 
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const ::Eigen::Matrix<double, 1, 1> &Sx, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, Sx, t){}
-
-Pose1d::Pose1d(double x, const TimeStamp &t){
-  Vec state;
-  state << x;
-  set(state, t);
-}
-
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, t){}
-
-
-/********** Implementation of 2d vehicle pose state **********/
-
-Pose2d::Pose2d(){}
-
-Pose2d::Pose2d(const Vec &x, const Mat &Sx, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, Sx, t){}
-
-Pose2d::Pose2d(const Vec &x, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, t){}
-
-Pose2d::Pose2d( double x, double y, double theta, 
-		double var_x, double var_y, double var_theta,
-		const TimeStamp &t ){
-  Vec state;
-  state << x, y, theta;
-  Mat cov;
-  cov << 
-    var_x, 0, 0,
-    0, var_y, 0,
-    0, 0, var_theta;
-  set(state, cov, t);
-}
-
-Pose2d::~Pose2d(){}
+Odometry2d::~Odometry2d(){}
 
 }
+
+
+
+
+
+
 

@@ -1,7 +1,7 @@
 /*
  * Software License Agreement (New BSD License)
  *
- * Copyright (c) 2013, Keith Leung, Felipe Inostroza
+ * Copyright (c) 2013, Keith Leung
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -28,77 +28,63 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Landmark classes for defining map feature state
-// Keith Leung 2013
+#ifndef HUNGARIAN_METHOD_HPP
+#define HUNGARIAN_METHOD_HPP
 
-#ifndef LANDMARK_HPP
-#define LANDMARK_HPP
+#include "CostMatrix.hpp"
+#include <queue>
+#include <vector>
 
-#include "RandomVec.hpp"
-
-namespace rfs
-{
+namespace rfs{
 
 /** 
- * \class Landmark
- * \brief An abstract class for defining landmark state
+ * \class HungarianMethod
+ * This class is an implementation of the Hungarian method for a linear assignment
+ * problem specified by a NxN cost matrix. It has complexity O(N^3).
+ * This code is referenced from the Top Coder tutorial on the Hungarian method: 
+ * http://community.topcoder.com/tc?module=Static&d1=tutorials&d2=hungarianAlgorithm 
+ * The following pdf is also a good reference for the method:
+ * www.cse.ust.hk/~golin/COMP572/Notes/Matching.pdf
+ * \brief The Hungarian Method for linear assignmnet
  * \author Keith Leung
  */
-
-template<class VecType, class MatType, class DescriptorType = int>
-class Landmark : public RandomVec<VecType, MatType>
+class HungarianMethod
 {
 public:
 
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
   /** Default constructor */
-  Landmark(){}
-
-  /** 
-   * Constructor
-   */
-  Landmark(VecType &x, MatType &Sx){
-    this->set(x, Sx);
-  }
-
-  /** 
-   * Constructor
-   */
-  Landmark(VecType &x, MatType &Sx, DescriptorType &d){
-    this->set(x, Sx);
-    desc_ = d;
-  }
+  HungarianMethod();
 
   /** Default destructor */
-  ~Landmark(){};
+  ~HungarianMethod();
 
-  /** Set descriptor for landmark 
-   *  \param[in] d descriptor
+  /**
+   * Run the Hungarian method
+   * \param[in] C square score / cost matrix.
+   * \param[in] n size of cost matrix
+   * \param[out] soln assignment solution, memory needs to be allocated by caller 
+   * \param[out] cost assignment solution cost, memory needs to be allocated by caller 
+   * \param[in] maximize true if we want to find maximum score, false for minimum score
+   * \param[in] debug creates debug printouts if true
+   * \return whether a solution has been found
    */
-  void setDescriptor(DescriptorType &d){
-    desc_ = d;
-  }
+  bool run(double** C, int n, int* soln, double* cost, bool maximize = true, bool debug = false );
 
-  /** Get descriptor for landmark 
-   *  \param[in] d descriptor
+
+  /**
+   * Run the Hungarian method
+   * \param[in] C cost matrix
+   * \param[out] soln assignment solution, memory needs to be allocated by caller 
+   * \param[out] cost assignment solution cost, memory needs to be allocated by caller 
+   * \param[in] maximize true if we want to find maximum score, false for minimum score
+   * \return whether a solution has been found
    */
-  void getDescriptor(DescriptorType &d){
-    d = desc_;
-  }
+  bool run(CostMatrix &C, int* soln, double* cost, bool maximize = true);
 
 private:
-  
-  DescriptorType desc_;
+
 
 };
-
-  typedef Landmark< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >
-Landmark1d;
-
-  typedef Landmark< ::Eigen::Vector2d, ::Eigen::Matrix2d> Landmark2d;
-
-  typedef Landmark< ::Eigen::Vector3d, ::Eigen::Matrix3d> Landmark3d;
 
 }
 

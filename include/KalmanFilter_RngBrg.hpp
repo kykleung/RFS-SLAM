@@ -28,59 +28,59 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "Pose.hpp"
+// Class for using the Kalman filter equations
+// Felipe Inostroza 2013, Keith Leung 2014
+
+#ifndef KALMANFILTER_RNGBRG_HPP
+#define KALMANFILTER_RNGBRG_HPP
+
+#include "KalmanFilter.hpp"
+#include "MeasurementModel_RngBrg.hpp"
 
 namespace rfs{
 
-/********** Implementation of 1d vechile position state ***********/
+/**
+ * \class KalmanFilter_RngBrg
+ * \brief A Kalman filter for updating a 2d landmark position from 
+ * a single range-bearing measurements. This is derived from the base
+ * Kalman Filter to handle innovation involving a rotation (bearing)
+ */
+class KalmanFilter_RngBrg : public KalmanFilter <StaticProcessModel<Landmark2d>, MeasurementModel_RngBrg>{
 
-Pose1d::Pose1d(){}
+  typedef MeasurementModel_RngBrg::TMeasurement::Vec Vec;
 
-Pose1d::Pose1d(double x, double Sx, const TimeStamp &t){
-  Vec state;
-  Mat cov;
-  state << x;
-  cov << Sx;
-  set(state, cov, t);
-}
+public:
 
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const ::Eigen::Matrix<double, 1, 1> &Sx, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, Sx, t){}
+  /** \brief Configuration for this KalmanFilter_RngBrg */
+  struct Config{
+    /** If positive, the innovation threshold above which an update is not processed for stability reasons. */
+    double rangeInnovationThreshold_; 
+    /** If positive, the innovation threshold above which an update is not processed for stability reasons. */
+    double bearingInnovationThreshold_;
+  }config;
 
-Pose1d::Pose1d(double x, const TimeStamp &t){
-  Vec state;
-  state << x;
-  set(state, t);
-}
+  /**
+   * Default constructor
+   */
+  KalmanFilter_RngBrg();
+  
+  /**
+   * Constructor
+   * \param[in] pMeasurementModel Pointer to the measurement model
+   * \param[in] pProcessModel Pointer to the process model
+   */
+  KalmanFilter_RngBrg(StaticProcessModel<Landmark2d> *pProcessModel,
+			   MeasurementModel_RngBrg *pMeasurementModel);
 
-Pose1d::Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const TimeStamp &t):
-  RandomVec< ::Eigen::Matrix<double, 1, 1>, ::Eigen::Matrix<double, 1, 1> >(x, t){}
+  /**
+   * Function to calculate the innovation 
+   * \param[in] z_exp expected measurement predicted using the measurement model 
+   * \param[in] z_act actual measurement
+   * \param[out] z_innov innovation
+   */
+  bool calculateInnovation(Vec &z_exp, Vec &z_act, Vec &z_innov);
 
-
-/********** Implementation of 2d vehicle pose state **********/
-
-Pose2d::Pose2d(){}
-
-Pose2d::Pose2d(const Vec &x, const Mat &Sx, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, Sx, t){}
-
-Pose2d::Pose2d(const Vec &x, const TimeStamp &t) :
-  RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >(x, t){}
-
-Pose2d::Pose2d( double x, double y, double theta, 
-		double var_x, double var_y, double var_theta,
-		const TimeStamp &t ){
-  Vec state;
-  state << x, y, theta;
-  Mat cov;
-  cov << 
-    var_x, 0, 0,
-    0, var_y, 0,
-    0, 0, var_theta;
-  set(state, cov, t);
-}
-
-Pose2d::~Pose2d(){}
+};
 
 }
-
+#endif
