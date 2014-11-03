@@ -21,11 +21,11 @@ SET(CMAKE_CXX_COMPILER "c++")
 # For X86-64 architecture, SSE2 is generally enabled by default
 SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-march=native")
 
-FILE(MAKE_DIRECTORY "bin")
-FILE(MAKE_DIRECTORY "bin/examples")
-FILE(MAKE_DIRECTORY "bin/test")
-FILE(MAKE_DIRECTORY "lib")
-FILE(MAKE_DIRECTORY "data")
+FILE(MAKE_DIRECTORY "./bin")
+FILE(MAKE_DIRECTORY "./bin/examples")
+FILE(MAKE_DIRECTORY "./bin/test")
+FILE(MAKE_DIRECTORY "./lib")
+FILE(MAKE_DIRECTORY "./data")
 
 FIND_PACKAGE(Boost COMPONENTS math_c99 timer system thread filesystem graph REQUIRED)
 set(Boost_USE_STATIC_LIBS ON)
