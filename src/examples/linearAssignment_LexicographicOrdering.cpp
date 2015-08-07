@@ -47,6 +47,8 @@
 #include <boost/random/uniform_01.hpp>
 #include <boost/random/variate_generator.hpp>
 
+typedef unsigned int uint;
+
 using namespace rfs;
 
 int main(int argc, char *argv[])

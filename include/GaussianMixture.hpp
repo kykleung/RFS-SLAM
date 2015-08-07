@@ -105,7 +105,7 @@ public:
 
   /** 
    * Get the sum of all Gaussian weights 
-   * \reuturn sum
+   * \return sum
    */
   double getWeightSum();
 

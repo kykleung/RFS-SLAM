@@ -93,7 +93,6 @@ public:
    * \param[out] Cp pointer to partition p of the cost matrix C.
    * \param[out] nRows number of rows
    * \param[out] nCols number of cols
-   * \param[out] isZeroPartition if not equal to NULL, indicates if partition p contains all zeros
    * \param[out] row_indices the original indices of the rows in partition p
    * \param[out] col_indices the original indices of the columns in partition p
    * \param[in] allocateExtendedMatrix if true, the array allocated for Cp will be [nRows + nCols] x [nRows + nCols]

@@ -32,14 +32,49 @@
 #include <boost/filesystem.hpp>
 #include "GaussianMixture.hpp"
 #include "Landmark.hpp"
-#include "HungarianMethod.hpp"
+#include "COLA.hpp"
 #include "Particle.hpp"
 #include "Pose.hpp"
 #include <stdio.h>
 #include <string>
 #include <vector>
 
+typedef unsigned int uint;
+
 using namespace rfs;
+
+class MM : public Landmark2d{
+
+public:
+  
+  MM(double x, double y, rfs::TimeStamp t = TimeStamp() ){
+    x_(0) = x;
+    x_(1) = y;
+    this->setTime(t);
+  }
+  ~MM(){}
+
+  double operator-(const MM& other){
+
+    rfs::Landmark2d::Vec dx = x_ - other.x_;
+    return dx.norm();
+    
+    //return sqrt(mahalanobisDist2( other )); For Mahalanobis distance
+
+  }
+  
+};
+
+
+struct COLA_Error{
+  
+  double error; // combined average error
+  double loc; // localization error
+  double card; // cardinality error
+  TimeStamp t;
+  
+};
+
 
 /**
  * \class LogFileReader2dSim
@@ -48,6 +83,9 @@ using namespace rfs;
 class LogFileReader2dSim
 {
 public:
+
+  typedef Particle<Pose2d, GaussianMixture<Landmark2d> > TParticle;
+  typedef std::vector< TParticle > TParticleSet;
 
   /** Constructor */
   LogFileReader2dSim(const char* logDir){
@@ -97,13 +135,10 @@ public:
   /** Read landmark groundtruth data 
    *  \return number of landmarks 
    */
-  int readLandmarkGroundtruth(){
+  void readLandmarkGroundtruth(){
     double x, y, t;
-    Landmark2d::Vec vm;
     while( fscanf(pGTLandmarkFile, "%lf %lf %lf", &x, &y, &t) == 3){
-      vm << x, y;
-      map_.push_back( vm );
-      mapObsTimestep_.push_back(t);
+      map_e_M_.push_back( MM( x, y, TimeStamp(t) ) );
     }
   }
 
@@ -135,24 +170,30 @@ public:
 	p[0] = p_x_;
 	p[1] = p_y_;
 	p[2] = p_z_;
-	Particle<Pose2d, GaussianMixture<Landmark2d> > particle(p_id_, p, p_w_);
+	TParticle particle(p_id_, p, p_w_);
 	particles_.push_back( particle ); 
-	particles_[p_id_].setData(new GaussianMixture<Landmark2d>);
+	particles_[p_id_].setData( TParticle::PtrData( new GaussianMixture<Landmark2d> ));
 
 	if( fscanf(pParticlePoseFile, "%lf %d %lf %lf %lf %lf", &p_t_, &p_id_, &p_x_, &p_y_, &p_z_, &p_w_) != 6)
 	  break;
       }
 
-      // Landmarks
-      Landmark2d::Vec vm;
-      Landmark2d::Mat Sm;
+      // Landmark estimate from highest weighted particle
+      double const W_THRESHOLD = 0.75;
+      emap_e_M_.clear();
+      cardEst_ = 0;
       while(fabs(lmk_t_ - t_currentStep_) < 1e-12){
-	//printf("t = %f   [%d] %f %f %f\n", lmk_t_, lmk_pid_, lmk_x_, lmk_y_, lmk_w_);
-
-	vm << lmk_x_, lmk_y_;
-	Sm << lmk_sxx_, lmk_sxy_, lmk_sxy_, lmk_syy_;
-	particles_[lmk_pid_].getData()->addGaussian(new Landmark2d(vm, Sm), lmk_w_);
-
+	if( lmk_pid_ == i_hi_ ){
+	  if( lmk_w_ >= W_THRESHOLD ){
+	    MM m_e_M(lmk_x_, lmk_y_, lmk_t_);
+	    rfs::Landmark2d::Cov mCov;
+	    mCov << lmk_sxx_, lmk_sxy_, lmk_sxy_, lmk_syy_;
+	    m_e_M.setCov(mCov);
+	    emap_e_M_.push_back(m_e_M);
+	  }
+	  cardEst_ += lmk_w_; 
+	}
+	
         if(fscanf(pLandmarkEstFile, "%lf %d %lf %lf %lf %lf %lf %lf\n", 
 		  &lmk_t_, &lmk_pid_, &lmk_x_, &lmk_y_, &lmk_sxx_, &lmk_sxy_, &lmk_syy_, &lmk_w_) != 8)
 	  break;
@@ -169,203 +210,42 @@ public:
    */
   double getCardinalityEst( int &nLandmarksObservable ){
 
-    std::vector<int> mapObservable;
-     for(int n = 0; n < mapObsTimestep_.size(); n++){
-       if( mapObsTimestep_[n] <= t_currentStep_ ){
-	 mapObservable.push_back(n);
-       }
-     }
-     nLandmarksObservable = mapObservable.size();
-
-     double cardEst = 0;
-     for(int i = 0; i < particles_.size(); i++){
-
-       int nGaussians = particles_[i].getData()->getGaussianCount();
-       double nLandmarksEst = 0;
-       for(int n = 0; n < nGaussians; n++ ){
-	 nLandmarksEst += particles_[i].getData()->getWeight(n); 
-       }
-       cardEst += nLandmarksEst * particles_[i].getWeight() / w_sum_;
-     }
-
-     return cardEst;
+    std::vector<MM> map_e_k_M; // observed groundtruth map storage (for Mahananobis distance calculations)
+    map_e_k_M.clear();
+    for(uint i = 0; i < map_e_M_.size(); i++){
+      if( map_e_M_[i].getTime().getTimeAsDouble() <= t_currentStep_ ){
+	map_e_k_M.push_back(map_e_M_[i]);
+      }
+    }
+    nLandmarksObservable = map_e_k_M.size();
+    
+    return cardEst_;
      
    }
 
   /** Caclculate the error for landmark estimates 
-   *  \return error
+   *  \return COLA errors
    */
-  double calcLandmarkError( bool averageError = true){
+  COLA_Error calcLandmarkError(){
 
-    double const c2 = 9.0; // cutoff
-    double spatialError_i = 0;
-    double cardinalityError_i = 0;
-    double ospaError = 0;
+    
+    double const cutoff = 0.20; // cola cutoff
+    double const order = 1.0; // cola order
 
-    std::vector<int> mapObservable;
-    for(int n = 0; n < mapObsTimestep_.size(); n++){
-      if( mapObsTimestep_[n] <= t_currentStep_ ){
-	mapObservable.push_back(n);
+    std::vector<MM> map_e_k_M; // observed groundtruth map storage (for Mahananobis distance calculations)
+    map_e_k_M.clear();
+    for(uint i = 0; i < map_e_M_.size(); i++){
+      if( map_e_M_[i].getTime().getTimeAsDouble() <= t_currentStep_ ){
+	map_e_k_M.push_back(map_e_M_[i]);
       }
     }
 
-    HungarianMethod hm;
+    COLA_Error e_cola;
+    e_cola.t = t_currentStep_;
+    COLA<MM> cola(emap_e_M_, map_e_k_M, cutoff, order);
+    e_cola.error = cola.calcError(&(e_cola.loc), &(e_cola.card));
 
-    for(int i = 0; i < particles_.size(); i++){
-
-      if( !averageError && i != i_hi_){
-	continue;
-      }
-
-      double w_i = 1;
-      if( averageError ){
-	w_i = particles_[i].getWeight();
-      }
-      
-      // For tracking renmaining groundtruth map weight
-      int nLandmarks = mapObservable.size();
-      double w_remain_gt[ nLandmarks ];
-      for(int n = 0; n < nLandmarks; n++ ){
-	w_remain_gt[n] = 1;
-      }
-
-      // For tracking remaining map estimate weight
-      int nGaussians = particles_[i].getData()->getGaussianCount();
-      double w_remain_est[ nGaussians ];
-      for(int n = 0; n < nGaussians; n++ ){
-	w_remain_est[n] = particles_[i].getData()->getWeight(n); 
-      }
-
-      // Create matrix of mahalanobis distance between groundtruth and estimated landmark positions
-      int E_size = mapObservable.size();
-      if(particles_[i].getData()->getGaussianCount() > E_size){
-	E_size = particles_[i].getData()->getGaussianCount();
-      }
-      double** E = new double* [E_size];
-      for(int e = 0; e < E_size; e++){
-	E[e] = new double[E_size];
-	for(int f = 0; f < E_size; f++){
-	  E[e][f] = c2;
-	}
-      }
-      for(int n = 0; n < mapObservable.size(); n++){
-	for(int m = 0; m < particles_[i].getData()->getGaussianCount(); m++){
-	  E[n][m] = particles_[i].getData()->getGaussian(m)->mahalanobisDist2( map_[mapObservable[n]] );
-	}
-      }
-      
-      // Allocate memory for a a copy of E, which we can use as we iterate to produce a smaller distance matrix
-      double** Er = new double* [E_size];
-      for(int e = 0; e < E_size; e++){
-	Er[e] = new double[E_size];
-      }
-      
-      std::vector<int> nonZeroEstIdx;
-      std::vector<int> nonZeroMapIdx;
-
-      spatialError_i = 0;
-
-      bool smallerThanCutoffDistanceExists = false;
-      do{
-
-	nonZeroEstIdx.clear();
-	nonZeroMapIdx.clear();
-	smallerThanCutoffDistanceExists = false;
-	
-	for(int n = 0; n < nGaussians; n++ ){
-	  if( w_remain_est[n] > 0){
-	    nonZeroEstIdx.push_back(n);
-	  }
-	}
-	for(int n = 0; n < nLandmarks; n++ ){
-	  if( w_remain_gt[n] > 0){
-	    nonZeroMapIdx.push_back(n);
-	  }
-	}
-	int Er_size = nonZeroMapIdx.size();
-	if( nonZeroEstIdx.size() > Er_size ){
-	  Er_size = nonZeroEstIdx.size();
-	}
-	if(nonZeroEstIdx.size() == 0 || nonZeroMapIdx.size() == 0){
-	  break;
-	}
-	for(int e = 0; e < Er_size; e++){
-	  for(int f = 0; f < Er_size; f++){
-	    if(e < nonZeroMapIdx.size() && f < nonZeroEstIdx.size() ){
-	      Er[e][f] = E[nonZeroMapIdx[e]][nonZeroEstIdx[f]];
-	      if( Er[e][f] > c2 )
-		Er[e][f] = c2;
-	    }else{
-	      Er[e][f] = c2; 
-	    }
-	  }
-	}
-
-	double cost_tmp;
-	int match[Er_size];
-	bool success = hm.run(Er, Er_size, match, &cost_tmp, false); // Find best linear assignment to minimize distance
-	if(!success){
-	  printf("particle %d\n", i);
-	  for(int e = 0; e < Er_size; e++){
-	    for(int f = 0; f < Er_size; f++){
-	      printf("%f   ", Er[e][f]);
-	    }
-	    printf("\n");
-	  }
-	  printf("\n");
-	  return -1;
-	}
-	
-	double err = 0;
-	for(int e = 0; e < nonZeroMapIdx.size(); e++){
-	  
-	  if(match[e] < nonZeroEstIdx.size() && Er[e][match[e]] < c2){
-
-	    smallerThanCutoffDistanceExists = true;
-
-	    double accountedWeight = fmin( w_remain_est[ nonZeroEstIdx[ match[e] ] ] , w_remain_gt[ nonZeroMapIdx[e] ] );
-	    w_remain_est[ nonZeroEstIdx[ match[e] ] ] -= accountedWeight;
-	    w_remain_gt[ nonZeroMapIdx[e] ] -= accountedWeight;
-
-	    spatialError_i += Er[e][match[e]] * accountedWeight;
-
-	  }
-
-	}
-
-      }while( smallerThanCutoffDistanceExists );
-      
-      double unaccountedEstWeight = 0;
-      double unaccountedMapWeight = 0;
-      for(int e = 0; e < nGaussians; e++){
-	unaccountedEstWeight += w_remain_est[e];
-      }
-      for(int e = 0; e < nLandmarks; e++){
-	unaccountedMapWeight += w_remain_gt[e];
-      }
-      cardinalityError_i = fmax(unaccountedMapWeight, unaccountedEstWeight) * c2;
-      //printf("Unaccounted map: %f   Unaccounted est: %f\n", unaccountedMapWeight, unaccountedEstWeight);
-      //printf("Spatial: %f   Card: %f\n", spatialError_i, cardinalityError_i);
-
-      double ospaError_i = sqrt( (spatialError_i + cardinalityError_i) / nLandmarks ); 
-      //printf("OSPA Error: %f   w: %f\n", ospaError, w_i);
-      ospaError += (ospaError_i * w_i);
-
-      for(int e = 0; e < E_size; e++ ){
-	delete[] E[e];
-	delete[] Er[e];
-      }
-      delete[] E;
-      delete[] Er;
-
-    }  
-
-    if( averageError ){
-      return (ospaError / w_sum_);
-    }else{
-      return ospaError;
-    }
-
+    return e_cola;
   }
 
   /** Calculate the dead reckoning error */
@@ -405,7 +285,7 @@ public:
 	w = particles_[i].getWeight();
       }
 
-      particles_[i].getPose(poseEst);
+      poseEst = particles_[i];
 
       ex = poseEst[0] - rx_;
       ey = poseEst[1] - ry_;
@@ -462,10 +342,11 @@ private:
   double i_hi_;  /** highest particle weight index */
   double w_sum_; /** particle weight sum */
 
-  std::vector< Particle<Pose2d, GaussianMixture<Landmark2d> > > particles_;
+  TParticleSet particles_;
   std::vector< Pose2d > pose_gt_;
-  std::vector< Landmark2d::Vec > map_;
-  std::vector<double> mapObsTimestep_;
+  std::vector<MM> map_e_M_; // groundtruth map storage (for Mahananobis distance calculations)
+  std::vector<MM> emap_e_M_; // estimated map storage (for Mahananobis distance calculations)
+  double cardEst_; // cardinality estimate
 
   double p_t_; 
   int p_id_;
@@ -484,6 +365,10 @@ private:
   double lmk_w_;
 
 };
+
+
+
+
 
 int main(int argc, char* argv[]){
 
@@ -515,7 +400,7 @@ int main(int argc, char* argv[]){
   double k = reader.readNextStepData();
   while( k != -1){
 
-    printf("Time: %f\n", k);
+    //printf("Time: %f\n", k);
     
     double ex, ey, er, ed;
     
@@ -525,15 +410,15 @@ int main(int argc, char* argv[]){
     reader.calcPoseError( ex, ey, er, ed, false );
     fprintf(pPoseEstErrorFile, "%f   %f   %f   %f   %f\n", k, ex, ey, er, ed);
 
-    printf("   error x: %f   error y: %f   error rot: %f   error dist: %f\n", ex, ey, er, ed);
+    //printf("   error x: %f   error y: %f   error rot: %f   error dist: %f\n", ex, ey, er, ed);
 
     int nLandmarksObserved;
     double cardEst = reader.getCardinalityEst( nLandmarksObserved );
-    double ospaError = reader.calcLandmarkError( false );
-    fprintf(pMapEstErrorFile, "%f   %d   %f   %f\n", k, nLandmarksObserved, cardEst, ospaError);
+    COLA_Error colaError = reader.calcLandmarkError();
+    fprintf(pMapEstErrorFile, "%f   %d   %f   %f\n", k, nLandmarksObserved, cardEst, colaError.error);
  
-    printf("   nLandmarks: %d   nLandmarks estimated: %f   OSPA error: %f\n", nLandmarksObserved, cardEst, ospaError);
-    printf("--------------------\n");
+    //printf("   nLandmarks: %d   nLandmarks estimated: %f   COLA error: %f\n", nLandmarksObserved, cardEst, colaError.loc + colaError.card);
+    //printf("--------------------\n");
     
     k = reader.readNextStepData();
   }

@@ -30,7 +30,7 @@ if(NOT Eigen_FIND_VERSION)
 endif(NOT Eigen_FIND_VERSION)
 
 macro(_eigen3_check_version)
-  file(READ "${EIGEN_INCLUDE_DIR}/Eigen/src/Core/util/Macros.h" _eigen3_version_header)
+  file(READ "${EIGEN_INCLUDE_DIRS}/Eigen/src/Core/util/Macros.h" _eigen3_version_header)
 
   string(REGEX MATCH "define[ \t]+EIGEN_WORLD_VERSION[ \t]+([0-9]+)" _eigen3_world_version_match "${_eigen3_version_header}")
   set(EIGEN_WORLD_VERSION "${CMAKE_MATCH_1}")
@@ -48,7 +48,7 @@ macro(_eigen3_check_version)
 
   if(NOT EIGEN_VERSION_OK)
 
-    message(STATUS "Eigen version ${EIGEN_VERSION} found in ${EIGEN_INCLUDE_DIR}, "
+    message(STATUS "Eigen version ${EIGEN_VERSION} found in ${EIGEN_INCLUDE_DIRS}, "
                    "but at least version ${Eigen_FIND_VERSION} is required")
   endif(NOT EIGEN_VERSION_OK)
 endmacro(_eigen3_check_version)
@@ -61,22 +61,22 @@ if (EIGEN_INCLUDE_DIRS)
 
 else ()
 
-  find_path(EIGEN_INCLUDE_DIR NAMES signature_of_eigen3_matrix_library
+  find_path(EIGEN_INCLUDE_DIRS NAMES signature_of_eigen3_matrix_library
       PATHS
       ${CMAKE_INSTALL_PREFIX}/include
       ${KDE4_INCLUDE_DIR}
       PATH_SUFFIXES eigen3 eigen
     )
 
-  if(EIGEN_INCLUDE_DIR)
+  if(EIGEN_INCLUDE_DIRS)
     _eigen3_check_version()
-  endif(EIGEN_INCLUDE_DIR)
+  endif(EIGEN_INCLUDE_DIRS)
 
   include(FindPackageHandleStandardArgs)
-  find_package_handle_standard_args(Eigen DEFAULT_MSG EIGEN_INCLUDE_DIR EIGEN_VERSION_OK)
+  find_package_handle_standard_args(Eigen DEFAULT_MSG EIGEN_INCLUDE_DIRS EIGEN_VERSION_OK)
 
-  mark_as_advanced(EIGEN_INCLUDE_DIR)
-  SET(EIGEN_INCLUDE_DIRS ${EIGEN_INCLUDE_DIR} CACHE PATH "The Eigen include path.")
+  mark_as_advanced(EIGEN_INCLUDE_DIRS)
+  #SET(EIGEN_INCLUDE_DIRS ${EIGEN_INCLUDE_DIR} CACHE PATH "The Eigen include path.")
 
 endif()
 

@@ -79,7 +79,7 @@ public:
    * \param[out] z_innov innovation
    */
   bool calculateInnovation(Vec &z_exp, Vec &z_act, Vec &z_innov);
-
+  
 };
 
 }

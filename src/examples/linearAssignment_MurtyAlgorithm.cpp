@@ -97,13 +97,13 @@ int main(int argc, char *argv[])
   boost::timer::cpu_timer timer;
 
   Murty murtyAlgo(C, C_size);
-  int* a;
+  Murty::Assignment a;
   int rank;
   double score;
-  murtyAlgo.setIdealBlock(nR1, nC1);
+  murtyAlgo.setRealAssignmentBlock(nR1, nC1);
   
   for(int k = 0; k < 100; k++){
-    rank = murtyAlgo.findNextBest(a, &score);
+    rank = murtyAlgo.findNextBest(a, score);
     if(rank == -1 || score < bigNegNum)
       break;
     printf("[%d : %f] %d %d %d %d %d %d %d\n", rank, score, a[0], a[1], a[2], a[3], a[4], a[5], a[6]); 

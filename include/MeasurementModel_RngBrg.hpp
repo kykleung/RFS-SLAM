@@ -98,12 +98,18 @@ public:
    * \param[in] pose \f$\mathbf{x}\f$, robot pose from which the measurement is made
    * \param[in] landmark \f$\mathbf{m}\f$, the measured landmark
    * \param[out] measurement \f$\mathbf{x}\f$, the measurement
-   * \param[out] jacobian if not NULL, the pointed-to matrix is overwritten 
-   * by the Jacobian of the measurement model, \f$\mathbf{H}\f$, evaluated at \f$\mathbf{x}\f$ and \f$\mathbf{m}\f$
+   * \param[out] jacobian_wrt_lmk if not NULL, the pointed-to matrix is overwritten 
+   * by the Jacobian of the measurement model w.r.t. the landmark state evaluated at 
+   * \f$\mathbf{x}\f$ and \f$\mathbf{m}\f$
+   * \param[out] jacobian_wrt_pose if not NULL, the pointed-to matrix is overwritten 
+   * by the Jacobian of the measurement model w.r.t. the robot state evaluated at 
+   * \f$\mathbf{x}\f$ and \f$\mathbf{m}\f$.
    * \return true if a valid measurement is produced
    */
   bool measure( const Pose2d &pose, const Landmark2d &landmark, 
-		Measurement2d &measurement, ::Eigen::Matrix2d *jacobian = NULL);
+		Measurement2d &measurement, 
+		::Eigen::Matrix2d *jacobian_wrt_lmk = NULL,
+		::Eigen::Matrix<double, 2, 3> *jacobian_wrt_pose = NULL);
 
   /** 
    * \f[ \mathbf{m} = \mathbf{h}^{-1}(\mathbf{x}, \mathbf{z} )\f] 

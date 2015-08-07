@@ -297,11 +297,15 @@ void CostMatrix::reduce(double lim, bool minVal){
   }
 
   for(int n = 0; n < n_; n++){
-    if( nMatch_j[ a_fixed_[n] ] != 1 ){
-      a_fixed_[n] = -1;
+    if( a_fixed_[n] != -1 ){
+      if( nMatch_j[ a_fixed_[n] ] != 1 ){
+	a_fixed_[n] = -1;
+      }
     }
-    if( nMatch_i[ a_fixed_reverse_[n] ] != 1){
-      a_fixed_reverse_[n] = -1;
+    if( a_fixed_reverse_[n] != -1 ){
+      if( nMatch_i[ a_fixed_reverse_[n] ] != 1){
+	a_fixed_reverse_[n] = -1;
+      }
     }
     if( a_fixed_[n] == -1){
       i_reduced_.push_back(n);

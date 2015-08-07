@@ -31,103 +31,122 @@
 #ifndef MURTY_ALGORITHM_HPP
 #define MURTY_ALGORITHM_HPP
 
+#include <boost/shared_ptr.hpp>
+#include <boost/shared_array.hpp>
 #include <cstddef>
-#include <list>
+#include <vector>
 #include <queue> 
 #include "HungarianMethod.hpp"
 
+typedef unsigned int uint;
+
 namespace rfs{
 
-/** 
- * \class Node
- * A generic tree node
- * \brief A generic tree node
- */
-class Node{
-
-public:
-
-  /** Constructor 
-   * \param[in] n_children_exp the number of children this node is expected to have,
-   * used for more efficient memory allocation. Not mandatory.
-   */
-  Node(int n_children_exp = -1);
-  
-  /** Destructor, virtual so that the children of derived objects gets destroyed properly */
-  virtual ~Node();
-
   /** 
-   * Get a pointer to the parent node
-   * \return pointer to parent, or NULL if this node has no parent
+   * \class Node
+   * \brief A generic tree node.
+   * \author Keith Leung
    */
-  Node* getParent();
+  class Node{
+
+  public:
+
+    /** Boost scoped pointer to a Node */
+    typedef boost::shared_ptr<Node> NodePtr;
+
+    /** \brief Constructor */
+    Node();
+  
+    /** \brief Destructor, virtual so that the children of derived objects gets destroyed properly */
+    virtual ~Node();
+
+    /** 
+     * \brief Get a const pointer to the parent node
+     * \return pointer to parent, or NULL if this node has no parent
+     */
+    Node* getParent() const;
+
+    /**
+     * \brief Get a pointer to a child
+     * \param[in] idx Child index (should be less than getChildrenCount())
+     * \return pointer to child, or NULL if idx is invalid
+     */ 
+    Node* getChildren(uint idx) const;
+
+    /**
+     * \brief Get the number of children that this node has
+     * \return number of children
+     */
+    uint getChildrenCount() const;
+
+    /**
+     * \brief Add a child to this node. 
+     * \note The parent node will take care of memory deallocation of children nodes
+     * \param[in] child pointer to child node
+     */
+    void addChild(Node* child);
+    
+    /**
+     * \brief Add a child to this node. 
+     * \param[in] child node
+     */
+    void addChild(Node &child);
+
+  protected:
+
+    /** \brief children nodes */
+    std::vector<NodePtr> children_;
+
+    /** \brief parent node */
+    Node* parent_;
+
+  };
+
+
 
   /**
-   * Get pointers to the children
-   * \param[out] children a vector containing pointers to children nodes
-   * \return a pointers to a vector
-   */ 
-  void getChildren(std::vector<Node*> &children);
-
-  /**
-   * Get the number of children that this node has
-   * \return number of children
+   * \class MurtyNode
+   * \brief A node used in the Murty class for k-best linear assignment.
+   * \author Keith Leung
    */
-  int getChildrenCount();
+  class MurtyNode : public Node
+  {
+  public:
 
-  /**
-   * Add a child to this node. 
-   * \note The parent node will take care of memory deallocation of children nodes
-   * \param[in] child pointer to child node
-   */
-  void addChild(Node* child);
+    /** \brief Smart pointer to a MurtyNode */
+    typedef boost::shared_ptr<MurtyNode> Ptr;
+    /** \brief A linear assignment */
+    typedef boost::shared_array<int> Assignment;
 
-private:
+    /** \brief Constructor 
+     *  \param[in] id The partition id number for this node. Default is -1
+     *  \param[in] n_children_exp the number of children this node is expected to have,
+     *  used for more efficient memory allocation. Not mandatory.
+     */
+    MurtyNode(int id = -1, int n_children_exp = -1);
 
-  std::list<Node*> children_;
-  int nChildren_;
-  Node* parent_;
-};
+    /** \brief Destructor */
+    ~MurtyNode();
 
+    /** \brief Comparison operator for sorting */
+    bool operator< (const MurtyNode& other);
 
+    /** \brief Set the linear assignment represented by this node */
+    void setAssignment(Assignment &a, double s);
 
-/**
- * \class MurtyNode
- * A node used in the Murty class for k-best linear assignment
- * \brief A node used in the Murty class for k-best linear assignment
- */
-class MurtyNode : public Node
-{
-public:
+    double getScore() const ;
 
-  /** Constructor 
-   * \param[in] id The partition id number for this node. Default is -1
-   * \param[in] n_children_exp the number of children this node is expected to have,
-   * used for more efficient memory allocation. Not mandatory.
-   */
-  MurtyNode(int id = -1, int n_children_exp = -1);
+    Assignment getAssignment() const;
 
-  /** Destructor */
-  ~MurtyNode();
+    int getPartitionID() const;
 
-  /** Comparison operator for sorting */
-  bool operator< (const MurtyNode& other);
+  private:
+  
+    int id_; /**< \brief id number of this node */
+    Assignment a_; /**< \brief Linear assignment */
+    double s_; /**< \brief score of the linear assignment */
 
-  void setAssignment(int* a, double s);
-
-  double getScore();
-
-  int* getAssignment();
-
-  int getPartitionID();
-
-private:
-
-  int id_; 
-  int* assignment_;
-  double score_;
-
-};
+  };
 
 
 /**
@@ -156,8 +175,11 @@ public:
 class Murty{
 
 public:
+
+  /** \brief A linear assignment */
+  typedef boost::shared_array<int> Assignment;
    
-  /** constructor 
+  /** \brief constructor 
    *  \param[in] C square score matrix from which we will find the best assignments.
    *  \param[in] n dimension of C
    *  \param[in] bigNum A number whose negative is used to replace entries in the cost matrix that cannot be used for assignment
@@ -168,33 +190,35 @@ public:
   ~Murty();
 
   /**
-   * Get the best score.
+   * \brief Get the best score.
    * \note The best score = 0 when object is first initiated.
    * \return the best score
    */
-  double getBestScore();
+  double getBestScore() const;
 
   /** Find the next best assignment 
-   *  \param[out] assignment pointer to array of assignment (no need to allocate/deallocate )
+   *  \param[out] assignment resulting next best assignment
    *  \param[out] score the assignment score 
    *  \return k, the k-best solution index, or -1 if no more solutions are available
    */
-  int findNextBest( int* &assignment, double* score);
+  int findNextBest( Assignment &assignment, double &score);
 
-  /** This is useful where we need to consider cases in whcih it is possible for elements
+  /** \brief Set the cost matrix block for real assignments. 
+   *
+   *  This is useful where we need to consider cases in whcih it is possible for elements
    *  to be unassigned. For example, in pairing landmarks with measurements, landmarks may be 
    *  misdetected, and measurements may be false alarm. To use this function, the origin (ideal)
-   *  m x n assignment matrix should be augmented to be a (m+n) x (m+n) matrix, such that the
+   *  m x n assignment matrix should be augmented to be a (m+n) x (n+m) matrix, such that the
    *  ideal matrix is in the upper left. The upper right augmented block should represent miss-detections 
    *  and the lower left augmented block should represent false alarms. 
-   *  \param[in] nR number of rows in the ideal block
-   *  \param[in] nC number of columns in the ideal block
+   *  \param[in] nR number of rows in the real assignment block
+   *  \param[in] nC number of columns in the real assignment block
    */
-  void setIdealBlock(unsigned int nR, unsigned int nC);
+  void setRealAssignmentBlock(unsigned int nR, unsigned int nC);
 
 private:
   
-  MurtyNode* root_; /**< The best linear assignment */
+  MurtyNode::Ptr root_; /**< The best linear assignment */
   int k_; /**< number of solutions found */
   double** C_; /**< the nxn score matrix */
   double** C_t_; /**< temporary score matrix */
@@ -203,8 +227,8 @@ private:
   std::priority_queue<MurtyNode*, std::vector<MurtyNode*>, MurtyNodeCompare> pq; /**< Priority queue for easy retrieval of node with highest score */
   double bestScore_;
   double bigNumber_;
-  unsigned int ideal_nC_; /**< dimension of ideal assignment block */
-  unsigned int ideal_nR_; /**< dimention of ideal assignment block */
+  unsigned int realAssign_nC_; /**< dimension of ideal assignment block */
+  unsigned int realAssign_nR_; /**< dimention of ideal assignment block */
 
 };
 

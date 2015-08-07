@@ -1,0 +1,16 @@
+tools/matlab/*
+doc/
+data/
+*.cmake
+Makefile
+CMakeFiles/
+CMakeCache.txt
+build/
+bin/
+!bin/*.py
+lib/
+install_manifest.txt
+*.orig
+*.bak
+cfg/*.xml
+*.DS_Store

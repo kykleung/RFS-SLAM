@@ -59,7 +59,7 @@ bool KalmanFilter_RngBrg::calculateInnovation(Vec &z_exp, Vec &z_act, Vec &z_inn
     z_innov(1) -= 2 * PI;
   while(z_innov(1) < -PI)
     z_innov(1) += 2 * PI;
-  if(config.bearingInnovationThreshold_ > 0 && fabs(z_innov(1) > config.bearingInnovationThreshold_) )
+  if(config.bearingInnovationThreshold_ > 0 && fabs(z_innov(1)) > config.bearingInnovationThreshold_ )
     return false;
   return true;
 }

@@ -31,19 +31,21 @@
 #ifndef FASTSLAM_HPP
 #define FASTSLAM_HPP
 
-#include <boost/timer/timer.hpp>
+#include "Timer.hpp"
 #include <Eigen/Core>
 #include "GaussianMixture.hpp"
-
 #include "HungarianMethod.hpp"
+#include "KalmanFilter.hpp"
 #include "MurtyAlgorithm.hpp"
-
-#include "KalmanFilter_RngBrg.hpp"
 #include "ParticleFilter.hpp"
 #include <math.h>
 #include <vector>
-
 #include <stdio.h>
+#include <list>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace rfs{
 
@@ -81,10 +83,25 @@ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   typedef typename RobotProcessModel::TState TPose;
+  typedef Trajectory<TPose> TTrajectory;
   typedef typename RobotProcessModel::TInput TInput;
   typedef typename MeasurementModel::TLandmark TLandmark;
   typedef typename MeasurementModel::TMeasurement TMeasurement;
-  typedef typename GaussianMixture<TLandmark>::Gaussian TGaussian;
+  typedef GaussianMixture<TLandmark> TGM;
+  typedef typename TGM::Gaussian TGaussian;
+  typedef ParticleFilter<RobotProcessModel, MeasurementModel, TGM > TPF;
+  typedef typename TPF::TParticle TParticle;
+  typedef typename TPF::TParticleSet TParticleSet;
+
+  /**
+   * \class LandmarkCandidate
+   * \brief New landmark candidate
+   */
+  class LandmarkCandidate : public TLandmark{
+  public:
+    uint nSupportingMeasurements;
+    uint nChecks;
+  };
 
   /** 
    * \brief Configurations for this RBPHDFilter 
@@ -93,6 +110,9 @@ public:
 
     /** Minimum updates betwen resampling of particles*/
     int minUpdatesBeforeResample_;
+
+    /** Minimum numnber of measurements before resampling of particles*/
+    int minMeasurementsBeforeResample_;
 
     /** If true, timing information is written to the console every update*/
     bool reportTimingInfo_;
@@ -115,7 +135,48 @@ public:
     /** Maximum measurement likelihood difference to the previous best data association hypothesis for a given association to be allowed to spawn a new particle in MH-FastSLAM */
     double maxDataAssocLogLikelihoodDiff_;
 
+    /**  Mahalanobis distance threshold less than which a measurement counts towards supporting a new landmark candidate */
+    double landmarkCandidateMeasurementSupportDist_;
+
+    /**  Number of supporting measurements required to generate a new landmark */
+    uint landmarkCandidateMeasurementCountThreshold_;
+
+    /**  Number of latest observations below or equal to which birth Gaussians are added regardless or measurement evidence.
+     *   This is to accomodate for the case where the robot enters an area sparesly populated with landmarks.
+     */
+    uint landmarkCandidateCurrentMeasurementCountThreshold_;
+
+    /**  Number of checks before candidate birth Gaussian is removed if there are not enough supporting measurements */
+    uint landmarkCandidateMeasurementCheckThreshold_;
+
+    /** Weight above which a landmark is considered permanent */
+    double landmarkLockWeight_;
+
+    /** Map pruning occurs if number of measurements is equal or above this threshold during update */
+    uint pruningMeasurementsThreshold_;
+
   } config;
+
+  
+  /**
+   * \brief Elapsed timing information 
+   */
+  struct TimingInfo {
+    long long predict_wall;
+    long long predict_cpu;
+    long long mapUpdate_wall;
+    long long mapUpdate_cpu;
+    long long dataAssoc_wall;
+    long long dataAssoc_cpu;
+    long long mapUpdate_KF_wall;
+    long long mapUpdate_KF_cpu;
+    long long weighting_wall;
+    long long weighting_cpu;
+    long long mapManage_wall;
+    long long mapManage_cpu;
+    long long particleResample_wall;
+    long long particleResample_cpu;
+  } timingInfo_;
 
   /** 
    * Constructor 
@@ -135,15 +196,18 @@ public:
   /**
    * Predict the robot trajectory using the lastest odometry data
    * \param[in] u input 
-   * \param[in] Timestamp size of timestep;
+   * \param[in] dT size of timestep;
+   * \param[in] useModelNoise use the additive noise for the motion model
+   * \param[in] useInputNoise use the noise for the inputs
    */
-  void predict( TInput u, const TimeStamp &dT);
+  void predict( TInput u, const TimeStamp &dT,
+		bool useModelNoise = true,
+		bool useInputNoise = false);
 
   /**
    * Update the map, calculate importance weighting, and perform resampling if necessary
    * \param[in] Z set of measurements to use for the update, placed in a std vector, which
    * gets cleared after the function call. 
-   * \param[in] currentTimestep current timestep;
    */
   void update( std::vector<TMeasurement> &Z);
 
@@ -180,23 +244,36 @@ public:
    */
   void setParticlePose(int i, TPose &p);
 
+  /** 
+   * Get elapsed timing information for various steps of the filter 
+   */
+  TimingInfo* getTimingInfo();
+
 
 private:
 
-  KalmanFilter *kfPtr_; /**< pointer to the Kalman filter */
+  std::vector< std::list<LandmarkCandidate> > landmarkCandidates_;
+  std::vector< uint > nLandmarksInFOV_;
+
+  uint nThreads_;
+
+  std::vector<KalmanFilter> kfs_; /**< Kalman filters (one for each thread)*/
   LmkProcessModel *lmkModelPtr_; /**< pointer to landmark process model */
 
   int nParticles_init_;
 
-  /** indices of unused measurement for each particle for creating birth Gaussians */
-  std::vector< std::vector<unsigned int> > unused_measurements_; 
+  bool resampleOccured_;
 
-  unsigned int nUpdatesSinceResample; /**< Number of updates performed since the last resmaple */
-  
-  /** 
-   * Add birth Gaussians for each particle's map using unused_measurements_
-   */ 
-  void addBirthGaussians();
+  Timer timer_predict_; /**< Timer for prediction step */
+  Timer timer_mapUpdate_; /**< Timer for map update */
+  Timer timer_dataAssoc_; /**< Timer for data assoication */
+  Timer timer_mapUpdate_KF_; /**< Timer for map update with the Kalman Filter */
+  Timer timer_weighting_; /**< Timer for particle weighting */
+  Timer timer_mapManage_; /**< Timer for map management */
+  Timer timer_particleResample_; /**<Timer for particle resampling */ 
+
+  unsigned int nUpdatesSinceResample_; /**< Number of updates performed since the last resmaple */
+  unsigned int nMeasurementsSinceResample_; /**< Number of measurements processed since the last resample */
 
   /**
    * Update the map with the measurements in measurements_
@@ -204,9 +281,9 @@ private:
    * mixture weight reduced to account for missed detection.
    * For every landmark-measurement pair with probability of detection > 0,
    * a new landmark will be created. 
-   * /return whether the update was successful
+   * /param[in] particleIdx index of the particle for which the map is to be updated
    */
-  bool updateMap();
+  void updateMap(const uint particleIdx);
 
   /**
    * Resample the particles, along with their individual maps,  according to their 
@@ -219,8 +296,9 @@ private:
    * \note For this FastSLAM algorithm, we perform weighting as part of 
    * mapUpdate() to be a little more efficient. Therefore, this function is 
    * not called at all. However, we still need to overwrite the virtual function.
+   * \param[in] idx particle index
    */
-  void importanceWeighting(){}
+  void importanceWeighting(const uint idx){}
 
 };
 
@@ -232,16 +310,24 @@ FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::
 		 GaussianMixture< typename MeasurementModel::TLandmark > >(n)
 {
 
+  nThreads_= 1;
+
+  #ifdef _OPENMP
+  nThreads_ = omp_get_max_threads();
+  #endif
+
   lmkModelPtr_ = new LmkProcessModel;
-  kfPtr_ = new KalmanFilter(lmkModelPtr_, this->getMeasurementModel());
+  kfs_ = std::vector<KalmanFilter>(nThreads_, 
+				   KalmanFilter(lmkModelPtr_, this->getMeasurementModel() ) );
 
   nParticles_init_ = n;
   
   for(int i = 0; i < n; i++){
-    this->particleSet_[i]->setData( new GaussianMixture<TLandmark>() );
+    this->particleSet_[i]->setData( typename TParticle::PtrData( new GaussianMixture<TLandmark>() ) );
   }
 
   config.minUpdatesBeforeResample_ = 1;
+  config.minMeasurementsBeforeResample_ = 1;
   config.reportTimingInfo_ = false;
   config.landmarkExistencePrior_ = 0.5;
   config.mapExistencePruneThreshold_ = -3.0;
@@ -249,17 +335,25 @@ FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::
   config.nParticlesMax_ = n * 3;
   config.maxNDataAssocHypotheses_ = 1;
   config.maxDataAssocLogLikelihoodDiff_ = 5;
+  config.landmarkCandidateMeasurementSupportDist_ = 1;
+  config.landmarkCandidateMeasurementCountThreshold_ = 1;
+  config.landmarkCandidateCurrentMeasurementCountThreshold_ = 1;
+  config.landmarkCandidateMeasurementCheckThreshold_ = 2;
+  config.landmarkLockWeight_ = 10;
+  config.pruningMeasurementsThreshold_ = 0;
 
-  nUpdatesSinceResample = 0;
+  nUpdatesSinceResample_ = 0;
+  nMeasurementsSinceResample_ = 0;
+
+  landmarkCandidates_.resize(n);
+  nLandmarksInFOV_.resize(n);
 }
 
 template< class RobotProcessModel, class LmkProcessModel, class MeasurementModel, class KalmanFilter >
 FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::~FastSLAM(){
   for(int i = 0; i < this->nParticles_; i++){
-    //delete maps_[i];
-    this->particleSet_[i]->deleteData();
+    this->particleSet_[i]->deleteData(); //delete maps_[i];
   }
-  delete kfPtr_;
   delete lmkModelPtr_;
 }
 
@@ -270,291 +364,395 @@ LmkProcessModel* FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel,
 
 template< class RobotProcessModel, class LmkProcessModel, class MeasurementModel, class KalmanFilter >
 void FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::predict( TInput u, 
-                                                  const TimeStamp &dT){
+											      const TimeStamp &dT,
+											      bool useModelNoise,
+											      bool useInputNoise){
 
-  boost::timer::auto_cpu_timer *timer = NULL;
-  if(config.reportTimingInfo_)
-    timer = new boost::timer::auto_cpu_timer(6, "Predict time: %ws\n");
+  timer_predict_.resume();
 
   // propagate particles
-  this->propagate(u, dT);
+  this->propagate(u, dT, useModelNoise, useInputNoise, true); // true for keeping trajecotory 
 
   // propagate landmarks
   for( int i = 0; i < this->nParticles_; i++ ){
-    //for( int m = 0; m < maps_[i]->getGaussianCount(); m++){
     for( int m = 0; m < this->particleSet_[i]->getData()->getGaussianCount(); m++){
       TLandmark *plm;
-      //maps_[i]->getGaussian(m, plm);
       this->particleSet_[i]->getData()->getGaussian(m, plm);
       lmkModelPtr_->staticStep(*plm, *plm, dT);
     }
   }
 
-  if(timer != NULL)
-    delete timer;
+  timer_predict_.stop();
 }
 
 template< class RobotProcessModel, class LmkProcessModel, class MeasurementModel, class KalmanFilter >
 void FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::update( std::vector<TMeasurement> &Z){
 
-  boost::timer::auto_cpu_timer *timer_mapUpdate = NULL;
-  boost::timer::auto_cpu_timer *timer_particleWeighting = NULL;
-  boost::timer::auto_cpu_timer *timer_mapMerge = NULL;
-  boost::timer::auto_cpu_timer *timer_mapPrune = NULL;
-  boost::timer::auto_cpu_timer *timer_particleResample = NULL;
+  const unsigned int startIdx = 0;
+  const unsigned int stopIdx = this->nParticles_;
 
-  nUpdatesSinceResample++;
+  if(landmarkCandidates_.size() < this->nParticles_ * config.maxNDataAssocHypotheses_)
+    landmarkCandidates_.resize(this->nParticles_ * config.maxNDataAssocHypotheses_);
+  if(nLandmarksInFOV_.size() < this->nParticles_ * config.maxNDataAssocHypotheses_)
+    nLandmarksInFOV_.resize(this->nParticles_ * config.maxNDataAssocHypotheses_);
+
+  nUpdatesSinceResample_++;
 
   this->setMeasurements( Z ); // Z gets cleared after this call, measurements now stored in this->measurements_
+  if(this->measurements_.size() == 0)
+    return;
+  nMeasurementsSinceResample_ += this->measurements_.size();
+
+  // make sure any setting changes to the Kalman Filter are set for all threads
+  if(nThreads_>1){
+    for(int j = 1; j < nThreads_; j++){
+      kfs_[j]=kfs_[0];
+    }
+  }
 
   ////////// Map Update and Particle Weighting//////////
-  if(config.reportTimingInfo_){
-    timer_mapUpdate = new boost::timer::auto_cpu_timer(6, "Map update time: %ws\n");
+  timer_mapUpdate_.resume();
+
+  #pragma omp parallel
+  {
+    #pragma omp for
+    for(unsigned int i = startIdx; i < stopIdx; i++){
+      updateMap(i);
+    }
   }
-  if(!updateMap())
-    printf("Update Failed!\n");
-  if(timer_mapUpdate != NULL)
-    delete timer_mapUpdate;
+
+  timer_mapUpdate_.stop();
 
   //////////// Particle resampling //////////
-  if(config.reportTimingInfo_){
-    timer_particleResample = new boost::timer::auto_cpu_timer(6, "Particle resample time: %ws\n");
-  }
+  timer_particleResample_.resume();
   resampleWithMapCopy();
-  if(timer_particleResample != NULL)
-    delete timer_particleResample;
+  timer_particleResample_.stop();
 
 }
 
 template< class RobotProcessModel, class LmkProcessModel, class MeasurementModel, class KalmanFilter >
-bool FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::updateMap(){
+void FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::updateMap(const uint particleIdx){
 
-  const unsigned int startIdx = 0;
-  const unsigned int stopIdx = this->nParticles_;
+  int threadnum = 0;
+  #ifdef _OPENMP
+    threadnum = omp_get_thread_num();
+  #endif
 
   const unsigned int nZ = this->measurements_.size();
+  const uint i = particleIdx;
 
-  HungarianMethod hm; // for data association
+  //----------  1. Data Association --------------------
+  #ifndef _OPENMP
+  timer_dataAssoc_.resume();
+  #endif
+  
+  // Look for landmarks within sensor range
+  const TPose *pose = this->particleSet_[i]->getPose();
+  unsigned int nM = this->particleSet_[i]->getData()->getGaussianCount();
+  std::vector<int> idx_inRange;
+  std::vector<double> pd_inRange;
+  std::vector<TLandmark*> lm_inRange;
+  for( int m = 0; m < nM; m++ ){
+    TLandmark* lm = this->particleSet_[i]->getData()->getGaussian(m);
+    bool closeToLimit = false;
+    double pd = this->pMeasurementModel_->probabilityOfDetection(*pose, *lm, closeToLimit); 
+    if( pd != 0 || closeToLimit ){
+      idx_inRange.push_back(m);
+      lm_inRange.push_back(lm);
+      pd_inRange.push_back(pd);
+    }
+  }
+  nM = lm_inRange.size();
 
-  for(unsigned int i = startIdx; i < stopIdx; i++){    
+  // Loglikelihood table for Data Association
+  unsigned int nMZ = nM;
+  if(nZ > nM){
+    nMZ = nZ;
+  }
+  double** likelihoodTable;
+  CostMatrix likelihoodMat(likelihoodTable, nMZ);
+  for( int m = 0; m < nMZ; m++ ){
+    for(int z = 0; z < nMZ; z++){
+      likelihoodTable[m][z] = config.minLogMeasurementLikelihood_;
+    }
+  }
 
-    //----------  1. Data Association --------------------
-    
-    // Look for landmarks within sensor range
-    const TPose *pose = this->particleSet_[i]->getPose();
-    //unsigned int nM = maps_[i]->getGaussianCount();
-    unsigned int nM = this->particleSet_[i]->getData()->getGaussianCount();
-    std::vector<int> idx_inRange;
-    std::vector<double> pd_inRange;
-    std::vector<TLandmark*> lm_inRange;
-    for( int m = 0; m < nM; m++ ){
-      //TLandmark* lm = maps_[i]->getGaussian(m);
-      TLandmark* lm = this->particleSet_[i]->getData()->getGaussian(m);
-      bool closeToLimit = false;
-      double pd = this->pMeasurementModel_->probabilityOfDetection(*pose, *lm, closeToLimit); 
-      if( pd != 0 || closeToLimit ){
-	idx_inRange.push_back(m);
-	lm_inRange.push_back(lm);
-	pd_inRange.push_back(pd);
+  // Fill in table for landmarks within range    
+  for(unsigned int m = 0; m < nM; m++){
+    TLandmark* lm = lm_inRange[m]; // landmark position estimate
+    TMeasurement measurement_exp; // expected measurement      
+    bool isValidExpectedMeasurement = this->pMeasurementModel_->measure( *pose , *lm , measurement_exp);
+    for(int z = 0; z < nZ; z++){
+      if( isValidExpectedMeasurement ){
+	likelihoodTable[m][z] = fmax(config.minLogMeasurementLikelihood_, 
+				     log(measurement_exp.evalGaussianLikelihood(this->measurements_[z])));
       }
     }
-    nM = lm_inRange.size();
-
-    // Loglikelihood table for Data Association
-    unsigned int nMZ = nM;
-    if(nZ > nM){
-      nMZ = nZ;
-    }
-    
-    double** likelihoodTable;
-    CostMatrix likelihoodMat(likelihoodTable, nMZ);
-    for( int m = 0; m < nMZ; m++ ){
-      for(int z = 0; z < nMZ; z++){
-	likelihoodTable[m][z] = config.minLogMeasurementLikelihood_;
-      }
-    }
-
-    // Fill in table for landmarks within range    
-    for(unsigned int m = 0; m < nM; m++){
-      TLandmark* lm = lm_inRange[m]; // landmark position estimate
-      TMeasurement measurement_exp; // expected measurement      
-      bool isValidExpectedMeasurement = this->pMeasurementModel_->measure( *pose , *lm , measurement_exp);
-      for(int z = 0; z < nZ; z++){
-	if( isValidExpectedMeasurement ){
-	  likelihoodTable[m][z] = fmax(config.minLogMeasurementLikelihood_, 
-				       log(measurement_exp.evalGaussianLikelihood(this->measurements_[z])));
-	}
-      }
-    }
+  }
  
-    likelihoodMat.reduce(config.minLogMeasurementLikelihood_);
-    double** likelihoodTableReduced;
-    int* assignments_fixed = new int[nMZ];
-    double score_reduced;
-    int* mRemap;
-    int* zRemap;
-    int nMZReduced = likelihoodMat.getCostMatrixReduced(likelihoodTableReduced, assignments_fixed, &score_reduced, mRemap, zRemap);
+  likelihoodMat.reduce(config.minLogMeasurementLikelihood_);
+  double** likelihoodTableReduced;
+  int* assignments_fixed = new int[nMZ];
+  double score_reduced;
+  int* mRemap;
+  int* zRemap;
+  int nMZReduced = likelihoodMat.getCostMatrixReduced(likelihoodTableReduced, assignments_fixed, &score_reduced, mRemap, zRemap);
    
-    // Use Hungaian Method and Murty's Method for k-best data association
-    unsigned int nH = 0; // number of data association hypotheses (we will create a new particle for each)
-    double logLikelihoodSum = 0;
-    Murty murty(likelihoodTableReduced, nMZReduced);
-    std::vector<int*> da; // data association hypotheses
-    if( nMZReduced == 0 ){
+  // Use Hungaian Method and Murty's Method for k-best data association
+  unsigned int nH = 0; // number of data association hypotheses (we will create a new particle for each)
+  double logLikelihoodSum = 0;
+  Murty murty(likelihoodTableReduced, nMZReduced);
+  std::vector<int*> da; // data association hypotheses
+  if( nMZReduced == 0 ){
+    int* da_current = new int[nMZ];
+    for(unsigned int m = 0; m < nM; m++){
+      da_current[m] = assignments_fixed[m];
+    }
+    da.push_back( da_current );
+  }else{
+    while(nH < config.maxNDataAssocHypotheses_){
+
+      Murty::Assignment daVar;
+      unsigned int nH_old = nH;
+      nH = murty.findNextBest(daVar, logLikelihoodSum);
+      if(nH == -1){
+	nH = nH_old;
+	break;
+      }
+      if(murty.getBestScore() - logLikelihoodSum >= config.maxDataAssocLogLikelihoodDiff_){
+	nH--;
+	break;
+      }
+
       int* da_current = new int[nMZ];
       for(unsigned int m = 0; m < nM; m++){
 	da_current[m] = assignments_fixed[m];
       }
-      da.push_back( da_current );
-    }else{
-      while(nH < config.maxNDataAssocHypotheses_){
-
-	int* daVar = NULL;
-	unsigned int nH_old = nH;
-	nH = murty.findNextBest(daVar, &logLikelihoodSum);
-	if(nH == -1){
-	  nH = nH_old;
-	  break;
+      for(unsigned int m = 0; m < nMZReduced; m++){
+	int z_o = zRemap[ daVar[m] ];
+	int m_o = mRemap[m];
+	if(z_o < nZ){
+	  da_current[ m_o ] = z_o;
+	}else{
+	  da_current[ m_o ] = -2;
 	}
-	if(murty.getBestScore() - logLikelihoodSum >= config.maxDataAssocLogLikelihoodDiff_){
-	  nH--;
-	  break;
-	}
-
-	int* da_current = new int[nMZ];
-	for(unsigned int m = 0; m < nM; m++){
-	  da_current[m] = assignments_fixed[m];
-	}
-	for(unsigned int m = 0; m < nMZReduced; m++){
-	  int z_o = zRemap[ daVar[m] ];
-	  int m_o = mRemap[m];
-	  if(z_o < nZ){
-	    da_current[ m_o ] = z_o;
-	  }else{
-	    da_current[ m_o ] = -2;
-	  }
-	}
-	da.push_back(da_current);
-
       }
-    }
+      da.push_back(da_current);
 
-    delete[] assignments_fixed;
-    /*
-    if(i == 0){
-      for(int m = 0; m < nMZ; m++ ){
-	printf("%d -- %d\n", m, da[0][m]);
-      }
-      printf("\n");
     }
-    */
-    // particle indices for update
-    unsigned int pi[nH];
-    pi[0] = i; 
-    if(nH > 1){
-      double newWeight = this->particleSet_[i]->getWeight() / nH;
-      this->particleSet_[i]->setWeight(newWeight);
+  }
+
+  delete[] assignments_fixed;
+  
+  // particle indices for update
+  unsigned int pi[nH];
+  pi[0] = i; 
+  if(nH > 1){
+    double newWeight = this->particleSet_[i]->getWeight() / nH;
+    this->particleSet_[i]->setWeight(newWeight); 
+    #pragma omp critical(increaseParticles)
+    {
       this->copyParticle(i, nH-1, newWeight);
       for(unsigned int h = 1; h < nH; h++){
 	pi[h] = this->nParticles_ - h;
-	//this->particleSet_[pi[h]]->getData()->getGaussianCount();
+	if(resampleOccured_){
+	   landmarkCandidates_[pi[h]] = landmarkCandidates_[pi[0]];
+	}
       }
     }
+  }
 
-    for(unsigned int h = 0; h < nH; h++){
+  #ifndef _OPENMP
+  timer_dataAssoc_.stop();
+  #endif
+  
+  for(unsigned int h = 0; h < nH; h++){
     
-      //----------  2. Kalman Filter map update ----------
+    //----------  2. Kalman Filter map update ----------
 
-      double nExpectedClutter = this->pMeasurementModel_->clutterIntensityIntegral(nZ);
-      double probFalseAlarm = nExpectedClutter / nZ;
-      double p_exist_given_Z = 0;
-      double logParticleWeight = 0;
+    double nExpectedClutter = this->pMeasurementModel_->clutterIntensityIntegral(nZ);
+    double probFalseAlarm = nExpectedClutter / nZ;
+    double p_exist_given_Z = 0;
+    double logParticleWeight = 0;
 
-      bool zUsed[nZ];
-      for(unsigned int z = 0; z < nZ; z++){
-	zUsed[z] = false;
+    nLandmarksInFOV_[pi[h]] = 0;
+    bool zUsed[nZ];
+    for(unsigned int z = 0; z < nZ; z++){
+      zUsed[z] = false;
+    }
+
+    #ifndef _OPENMP
+    timer_mapUpdate_KF_.resume();
+    #endif
+
+    for(unsigned int m = 0; m < nM; m++){
+      
+      TLandmark* lm = this->particleSet_[pi[h]]->getData()->getGaussian( idx_inRange[m] );
+
+      // Update landmark estimate m with the associated measurement
+      int z = da[h][m];
+      bool isUpdatePerformed = false;
+      if(z < nZ && z >= 0 && likelihoodTable[m][z] > config.minLogMeasurementLikelihood_){
+	isUpdatePerformed = kfs_[threadnum].correct(*pose, this->measurements_[z], *lm, *lm);
       }
-
-      for(unsigned int m = 0; m < nM; m++){
       
-	TLandmark* lm = this->particleSet_[pi[h]]->getData()->getGaussian( idx_inRange[m] );
+      // calculate change to existence probability      
+      double w = this->particleSet_[pi[h]]->getData()->getWeight( idx_inRange[m] );
+      if(isUpdatePerformed){
 
-	// Update landmark estimate m with the associated measurement
-	int z = da[h][m];
-	bool isUpdatePerformed = false;
-	if(z < nZ && z >= 0 && likelihoodTable[m][z] > config.minLogMeasurementLikelihood_){
-	  isUpdatePerformed = kfPtr_->correct(*pose, this->measurements_[z], *lm, *lm);
-	}
-      
-	// calculate change to existence probability      
-	if(isUpdatePerformed){
+	nLandmarksInFOV_[pi[h]]++;
+	zUsed[z] = true; // This flag is for new landmark creation
+	logParticleWeight += likelihoodTable[m][z];
+	p_exist_given_Z = ((1 - pd_inRange[m]) * probFalseAlarm * config.landmarkExistencePrior_ + pd_inRange[m] * config.landmarkExistencePrior_) /
+	  (probFalseAlarm + (1 - probFalseAlarm) * pd_inRange[m] * config.landmarkExistencePrior_); 
 
-	  zUsed[z] = true; // This flag is for new landmark creation	
-	  logParticleWeight += likelihoodTable[m][z];
-	  p_exist_given_Z = ((1 - pd_inRange[m]) * probFalseAlarm * config.landmarkExistencePrior_ + pd_inRange[m] * config.landmarkExistencePrior_) /
-	    (probFalseAlarm + (1 - probFalseAlarm) * pd_inRange[m] * config.landmarkExistencePrior_); 
-
-	}else{ // landmark estimate m not updated
+      }else{ // landmark estimate m not updated
 	  
-	  p_exist_given_Z = ((1 - pd_inRange[m]) * config.landmarkExistencePrior_) /
-	    ((1 - config.landmarkExistencePrior_) + (1 - pd_inRange[m]) * config.landmarkExistencePrior_);
+	p_exist_given_Z = ((1 - pd_inRange[m]) * config.landmarkExistencePrior_) /
+	  ((1 - config.landmarkExistencePrior_) + (1 - pd_inRange[m]) * config.landmarkExistencePrior_);
 
-	}
+	if(w > config.landmarkLockWeight_)
+	  p_exist_given_Z = 0.5;
 
-	double w = this->particleSet_[pi[h]]->getData()->getWeight( idx_inRange[m] );
-	w += log( (p_exist_given_Z) / (1 - p_exist_given_Z) ); 
-	this->particleSet_[pi[h]]->getData()->setWeight(idx_inRange[m], w);
       }
+      
+      w += log( (p_exist_given_Z) / (1 - p_exist_given_Z) ); 
+      this->particleSet_[pi[h]]->getData()->setWeight(idx_inRange[m], w);
+    }
      
-
-      //---------- 3. Map Management (Add and remove landmarks)  ------------
+    #ifndef _OPENMP
+    timer_mapUpdate_KF_.stop();
+    timer_mapManage_.resume();
+    #endif
+  
+    //---------- 3. Map Management (Add and remove landmarks)  ------------
+    //if(nLandmarksInFOV_[pi[h]] >= 3 && nZ >= 3)
+    if(nZ >= config.pruningMeasurementsThreshold_)
       int nRemoved = this->particleSet_[pi[h]]->getData()->prune(config.mapExistencePruneThreshold_); 
+    
+    double newLandmarkWeight = log(config.landmarkExistencePrior_ / (1 - config.landmarkExistencePrior_));
 
-      for(unsigned int z = 0; z < nZ; z++){
-	if(!zUsed[z]){ // Create new landmarks with inverse measurement model with unused measurements
+    for(unsigned int z = 0; z < nZ; z++){
+      if(!zUsed[z]){ // Create new landmarks with inverse measurement model with unused measurements
 
-	  TLandmark landmark_pos;
-	  this->pMeasurementModel_->inverseMeasure( *pose, this->measurements_[z] , landmark_pos );
-	  double newLandmarkWeight = log(config.landmarkExistencePrior_ / (1 - config.landmarkExistencePrior_));
-	  this->particleSet_[pi[h]]->getData()->addGaussian( &landmark_pos, newLandmarkWeight, true);
+	// get measurement
+	TMeasurement unused_z = this->measurements_[z];
+
+	// check to see if measurement corresponds closely with a Landmark in the landmark candidate list
+	bool isNewCandidate = true;
+      
+	for( typename std::list<LandmarkCandidate>::iterator it = landmarkCandidates_[pi[h]].begin();
+	     it != landmarkCandidates_[pi[h]].end(); it++ ){
+	  
+	  TMeasurement z_exp;
+	  TPose x = *(this->particleSet_[pi[h]]);
+	  this->pMeasurementModel_->measure(x, *it, z_exp);
+	  double d2 = z_exp.mahalanobisDist2( unused_z );
+	  if(d2 <= config.landmarkCandidateMeasurementSupportDist_ * config.landmarkCandidateMeasurementSupportDist_){
+	    kfs_[0].correct(x, unused_z, *it, *it);
+	    (it->nSupportingMeasurements)++;
+	    isNewCandidate = false;
+	    break;
+	  }
 	}
+
+	if(isNewCandidate){
+
+	  // use inverse measurement model to get landmark
+	  TPose robot_pose = *(this->particleSet_[pi[h]]);
+	  LandmarkCandidate c;
+	  c.nSupportingMeasurements = 1;
+	  c.nChecks = 0;
+	  this->pMeasurementModel_->inverseMeasure( robot_pose, unused_z, c );
+
+	  if(config.landmarkCandidateMeasurementCountThreshold_ == 1 ||
+	     nLandmarksInFOV_[pi[h]] <= config.landmarkCandidateCurrentMeasurementCountThreshold_){
+	    // add birth landmark to Gaussian mixture (last param = true to allocate mem)
+	    this->particleSet_[pi[h]]->getData()->addGaussian( &c, newLandmarkWeight, true);	  
+	  }else{
+	    landmarkCandidates_[pi[h]].push_back(c);
+	  }
+	
+	}  
+	
+	// Check through candidate list to see if any candidates should be made into a real birth Gaussian
+	for( typename std::list<LandmarkCandidate>::iterator it = landmarkCandidates_[pi[h]].begin();
+	     it != landmarkCandidates_[pi[h]].end(); it++ ){
+	  it->nChecks++;
+	  while( it->nSupportingMeasurements >= config.landmarkCandidateMeasurementCountThreshold_ || 
+		 it->nChecks > config.landmarkCandidateMeasurementCheckThreshold_ ||
+		 nLandmarksInFOV_[pi[h]] <= config.landmarkCandidateCurrentMeasurementCountThreshold_){
+	    
+	    if (it->nSupportingMeasurements >= config.landmarkCandidateMeasurementCountThreshold_){
+	      
+	      this->particleSet_[pi[h]]->getData()->addGaussian( &(*it), newLandmarkWeight * it->nChecks, true);
+
+	    }else if( nLandmarksInFOV_[pi[h]] <= config.landmarkCandidateCurrentMeasurementCountThreshold_){
+	      this->particleSet_[pi[h]]->getData()->addGaussian( &(*it), newLandmarkWeight * it->nChecks, true);
+	    }
+	    it = landmarkCandidates_[pi[h]].erase( it );
+	    if( it != landmarkCandidates_[pi[h]].end() ){
+	      it->nChecks++;
+	    }else{
+	      break;
+	    }
+	  }
+	}
+	
       }
-
-      //---------- 4. Importance Weighting --------------
-      // Some of the work has already been done in the map update step
-      double prev_p_weight = this->particleSet_[pi[h]]->getWeight();
-      this->particleSet_[pi[h]]->setWeight( prev_p_weight * exp(logParticleWeight) );
-
     }
 
+    #ifndef _OPENMP
+    timer_mapManage_.stop();
+    timer_weighting_.resume();
+    #endif
 
-    //---------- 5. Cleanup - Free memory ---------
-    for( int d = 0; d < da.size(); d++ ){
-      delete[] da[d];
-    }
+    //---------- 4. Importance Weighting --------------
+    // Some of the work has already been done in the map update step
+    double prev_p_weight = this->particleSet_[pi[h]]->getWeight();
+    this->particleSet_[pi[h]]->setWeight( prev_p_weight * exp(logParticleWeight) );
 
-  } // particle i loop end
+    #ifndef _OPENMP
+    timer_weighting_.stop();
+    #endif
 
-  return true;
+  }
+
+  //---------- 5. Cleanup - Free memory ---------
+  for( int d = 0; d < da.size(); d++ ){
+    delete[] da[d];
+  }
 
 }
 
 template< class RobotProcessModel, class LmkProcessModel, class MeasurementModel, class KalmanFilter >
 void FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::resampleWithMapCopy(){
 
-  bool resampleOccured = false;
+  resampleOccured_ = false;
 
   if( this->nParticles_ > config.nParticlesMax_){
-    resampleOccured = this->resample( nParticles_init_, true );
-  }else if( nUpdatesSinceResample >= config.minUpdatesBeforeResample_){
-    resampleOccured = this->resample( nParticles_init_ );
+    resampleOccured_ = this->resample( nParticles_init_, true );
+  }else if( nUpdatesSinceResample_ >= config.minUpdatesBeforeResample_ && 
+	    nMeasurementsSinceResample_ >= config.minMeasurementsBeforeResample_){
+    resampleOccured_ = this->resample( nParticles_init_ );
   }
 
-  if( resampleOccured ){
-    nUpdatesSinceResample = 0;
+  if( resampleOccured_ ){
+    nUpdatesSinceResample_ = 0;
+    nMeasurementsSinceResample_ = 0;
   }else{
     this->normalizeWeights();
   }
+
+  if(resampleOccured_){ 
+    for(uint i = 0; i < this->nParticles_; i++){
+      uint i_prev = this->particleSet_[i]->getParentId();
+      if( i_prev != i ){
+	landmarkCandidates_[i] = landmarkCandidates_[i_prev];
+      }
+    }
+  }
+
 
 }
 
@@ -592,13 +790,28 @@ template< class RobotProcessModel, class LmkProcessModel, class MeasurementModel
 void FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::
 setParticlePose(int i, TPose &p){
   
-  this->particleSet_[i]->setPose(p);
+  *(this->particleSet_[i]) = p;
 
 }
 
 template< class RobotProcessModel, class LmkProcessModel, class MeasurementModel, class KalmanFilter >
 KalmanFilter* FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::getKalmanFilter(){
-  return kfPtr_;
+  return &(kfs_[0]);
+}
+
+template< class RobotProcessModel, class LmkProcessModel, class MeasurementModel, class KalmanFilter >
+typename FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::TimingInfo* FastSLAM< RobotProcessModel, LmkProcessModel, MeasurementModel, KalmanFilter >::
+getTimingInfo(){
+
+  timer_predict_.elapsed(timingInfo_.predict_wall, timingInfo_.predict_cpu);
+  timer_mapUpdate_.elapsed(timingInfo_.mapUpdate_wall, timingInfo_.mapUpdate_cpu);
+  timer_dataAssoc_.elapsed(timingInfo_.dataAssoc_wall, timingInfo_.dataAssoc_cpu);
+  timer_mapUpdate_KF_.elapsed(timingInfo_.mapUpdate_KF_wall, timingInfo_.mapUpdate_KF_cpu);
+  timer_weighting_.elapsed(timingInfo_.weighting_wall, timingInfo_.weighting_cpu);
+  timer_mapManage_.elapsed(timingInfo_.mapManage_wall, timingInfo_.mapManage_cpu);
+  timer_particleResample_.elapsed(timingInfo_.particleResample_wall, timingInfo_.particleResample_cpu);
+  
+  return &timingInfo_;
 }
 
 }

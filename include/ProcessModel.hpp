@@ -130,7 +130,10 @@ public:
     if(useInputWhiteGaussianNoise){
 
       InputType in;
-      input_k.sample(in); // noise of in needs to be defined according to dT outside this function
+      input_k.sample(in);
+      //std::cout << input_k.getCov() << std::endl << std::endl;
+      //std::cout << input_k.get() << std::endl << std::endl;
+      //std::cout << in.get() << std::endl << "--------" << std::endl;
       step( s_k, s_km, in, dT );
 
     }else{
@@ -191,7 +194,7 @@ public:
    */
   void step( StateType &s_k, StateType &s_km, 
 	     NullInput &input_k , TimeStamp const &dT){
-    
+    TimeStamp t_; 
     if( this->inputNoiseDefined_ ){
       typename StateType::Vec x;
       typename StateType::Mat S;
@@ -215,9 +218,9 @@ public:
     step(s_k , s_km , input , dT);
   }
 
-private:
 
-  TimeStamp t_; 
+
+  
 
 };
 

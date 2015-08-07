@@ -40,6 +40,7 @@
 #include <boost/random/variate_generator.hpp>
 #include <Eigen/Core>
 #include <Eigen/Cholesky>
+#include <Eigen/Dense>
 #include <Eigen/LU>
 //#include <Eigen/StdVector>
 #include <iostream>
@@ -51,95 +52,119 @@ namespace rfs
 {
 
 
-double const PI = acos(-1);
+  double const PI = acos(-1);
 
-/**
- * \class RandomVec
- * Representation of a Gaussian random vector, with mean and covariance. A time variable is also included for time-stamping.
- * \brief An abstract base class for deriving pose and measurement classes
- * \tparam VecType An Eigen vector of dimension n
- * \tparam MatType An Eigen matrix or dimension n x n
- * \author Keith Leung
- */
-template<class VecType, class MatType>
-class RandomVec
-{
-
-public:
-
-  typedef VecType Vec;
-  typedef MatType Mat;
-
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
-
-  /** Default constructor */
-  RandomVec() : 
-    isValid_Sx_L_(false), 
-    isValid_Sx_inv_(false),
-    isValid_Sx_det_(false),
-    gen_(NULL)
-  {
-
-    if ( !dimCheck() ){
-      exit(-1);
-    }
-    x_.setZero();
-    Sx_.setZero();
-    t_.sec = -1;
-    t_.nsec = 0;
-
-  }
-
-  /** 
-   * Constructor 
-   * \param[in] x vector
-   * \param[in] Sx covariance
-   * \param[in] t time
-   */
-  RandomVec(const VecType x, const MatType Sx, const TimeStamp t = TimeStamp() ) :
-    isValid_Sx_L_(false), 
-    isValid_Sx_inv_(false),
-    isValid_Sx_det_(false),
-    gen_(NULL)
-  {
-    if ( !dimCheck() ){
-      exit(-1);
-    }
-    set(x);
-    setCov(Sx);
-    t_ = t;
-
-  }
-
-  /** 
-   * Constructor 
-   * \param[in] x vector
-   * \param[in] t time
-   */
-  RandomVec(const VecType x, const TimeStamp t = TimeStamp()) :
-    isValid_Sx_L_(false), 
-    isValid_Sx_inv_(false),
-    isValid_Sx_det_(false),
-    gen_(NULL)
-  {
-    if ( !dimCheck() ){
-      exit(-1);
-    }
-    set(x);
-    Sx_.setZero();
-    t_ = t;
-
-  }
-
-  
   /**
-   * Copy constructor
-   * \param[in] other the RandomVec being copied from
+   * \class RandomVec
+   * Representation of a Gaussian random vector, with mean and covariance. A time variable is also included for time-stamping.
+   * \brief An abstract base class for deriving pose and measurement classes
+   * \tparam nDim Dimension of the vector
+   * \author Keith Leung
    */
-  RandomVec( const RandomVec& other ):
+  template<unsigned int nDim = 1>
+  class RandomVec
+  {
 
+  public:
+
+    typedef ::Eigen::Matrix<double, nDim, 1> Vec;
+    typedef ::Eigen::Matrix<double, nDim, nDim> Mat;
+    typedef Mat Cov;
+
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+
+    /** \brief Default constructor */
+    RandomVec() : 
+      isValid_Sx_L_(false), 
+      isValid_Sx_inv_(false),
+      isValid_Sx_det_(false)
+    {
+      dimCheck();
+
+      x_.setZero();
+      Sx_.setZero();
+
+    }
+
+    /** 
+     * \brief Constructor 
+     * \param[in] x vector
+     * \param[in] Sx covariance
+     * \param[in] t time
+     */
+    RandomVec(const Vec &x, const Mat &Sx, const TimeStamp &t = TimeStamp() ) :
+      isValid_Sx_L_(false), 
+      isValid_Sx_inv_(false),
+      isValid_Sx_det_(false)
+    {
+      dimCheck();
+      set(x);
+      setCov(Sx);
+      t_ = t;
+
+    }
+
+    /** 
+     * \brief Constructor 
+     * \param[in] x vector
+     * \param[in] SxVec Array with diagonal entries of covariance
+     * \param[in] t time
+     */
+    RandomVec(const Vec &x, double const * const &SxVec, const TimeStamp &t = TimeStamp() ) :
+      isValid_Sx_L_(false), 
+      isValid_Sx_inv_(false),
+      isValid_Sx_det_(false)
+    {
+      dimCheck();
+      set(x);
+      Vec SxVecTmp;
+      for(int i = 0; i < nDim; i++){
+	SxVecTmp(i) = SxVec[i]; 
+      }
+      setCov(SxVecTmp.asDiagonal());
+      t_ = t;
+
+    }
+
+    /** 
+     * Constructor 
+     * \param[in] x vector
+     * \param[in] t time
+     */
+    RandomVec(const Vec &x, const TimeStamp t = TimeStamp()) :
+      isValid_Sx_L_(false), 
+      isValid_Sx_inv_(false),
+      isValid_Sx_det_(false)
+    {
+      dimCheck();
+      set(x);
+      Sx_.setZero();
+      t_ = t;
+
+    }
+
+    /** 
+     * Constructor 
+     * \param[in] t time
+     */
+    RandomVec(const TimeStamp &t) :
+      isValid_Sx_L_(false), 
+      isValid_Sx_inv_(false),
+      isValid_Sx_det_(false)
+    {
+      dimCheck();
+      x_.setZero();
+      Sx_.setZero();
+      t_ = t;
+
+    }
+  
+    /**
+     * Copy constructor
+     * \param[in] other the RandomVec being copied from
+     */
+    RandomVec( const RandomVec& other ):
     x_( other.x_ ), 
-    nDim_( other.nDim_ ), 
     Sx_( other.Sx_ ), 
     Sx_inv_( other.Sx_inv_ ),
     isValid_Sx_inv_( other.isValid_Sx_inv_),
@@ -148,380 +173,364 @@ public:
     Sx_L_( other.Sx_L_ ),
     isValid_Sx_L_( other.isValid_Sx_L_), 
     t_(other.t_) 
-  {
-    gen_ = NULL;
-  }
+    {}
 
-  /**
-   * Assignment operator
-   * \param[in] rhs the right-hand-side from which data is copied
-   */
-  RandomVec& operator=( const RandomVec& rhs ){
+    /**
+     * Assignment operator
+     * \param[in] rhs the right-hand-side from which data is copied
+     */
+    RandomVec& operator=( const RandomVec& rhs ){
     
-    x_ = rhs.x_;
-    nDim_ = rhs.nDim_;
-    Sx_ = rhs.Sx_;
-    Sx_inv_ = rhs.Sx_inv_;
-    isValid_Sx_inv_ = rhs.isValid_Sx_inv_;
-    Sx_det_ = rhs.Sx_det_;
-    isValid_Sx_det_ = rhs.isValid_Sx_det_;
-    Sx_L_ = rhs.Sx_L_;
-    isValid_Sx_L_ = rhs.isValid_Sx_L_;
-    t_ = rhs.t_;
+      x_ = rhs.x_;
+      Sx_ = rhs.Sx_;
+      Sx_inv_ = rhs.Sx_inv_;
+      isValid_Sx_inv_ = rhs.isValid_Sx_inv_;
+      Sx_det_ = rhs.Sx_det_;
+      isValid_Sx_det_ = rhs.isValid_Sx_det_;
+      Sx_L_ = rhs.Sx_L_;
+      isValid_Sx_L_ = rhs.isValid_Sx_L_;
+      t_ = rhs.t_;
 
-    gen_ = NULL;
-  }
+      return *this;
+    }
 
-  /** Default destructor */
-  ~RandomVec(){
-    if( gen_ != NULL )
-      delete gen_;
+    /** Default destructor */
+    ~RandomVec(){};
+
+    /** 
+     * [] Operator for looking up the value of an element of x			       
+     * \return the value of element n of vector x
+     */
+    double& operator[] (const int n){ 
+      assert(n >= 0 && n < nDim);
+      return x_(n);
+    }
+
+    /** 
+     * Set the vector
+     * \param[in] x vector to be set
+     */
+    void set( const Vec &x ){x_ = x;}
+
+    /** 
+     * Set the covariance for uncertainty
+     * \param[in] Sx uncertainty to be set
+     */
+    void setCov( const Mat &Sx){
+      Sx_ = Sx;
+      isValid_Sx_L_ = false; 
+      isValid_Sx_inv_ = false;
+      isValid_Sx_det_ =false;
+    }
+
+    /**
+     * Set the time
+     * \param[in] t time
+     */
+    void setTime( const TimeStamp &t ){
+      t_ = t;
+    }
+
+    /** 
+     * Set the vector with a covariance matrix
+     * \param[in] x vector to be set
+     * \param[in] Sx covariance to be set
+     */
+    void set( const Vec &x, const Mat &Sx){
+      set(x);
+      setCov(Sx);
+    }
+
+    /** 
+     * Set the vector with a time
+     * \param[in] x vector to be set
+     * \param[in] t time
+     */
+    void set( const Vec &x, const TimeStamp &t){
+      set(x);
+      t_ = t;
+    }
+
+    /** 
+     * Set the vector with a covariance matrix, and time
+     * \param[in] x vector to be set
+     * \param[in] Sx covariance to be set
+     * \param[in] t time
+     */
+    void set( const Vec &x, const Mat &Sx, const TimeStamp &t){
+      set(x);
+      setCov(Sx);
+      t_ = t;
+    }
+
+    /**
+     * Get the vector
+     * \return x vector
+     */
+    Vec get() const { return x_;}
+
+    /** 
+     * Get the vector
+     * \param[out] x vector
+     */
+    void get( Vec &x ) const {x = x_;}
+
+    /**
+     * Get the covariance matrix
+     * \return Sx covariance representing the uncertainty
+     */
+    Mat getCov() const { return Sx_; }
+
+    /** 
+     * Get the covariance matrix
+     * \param[out] Sx uncertainty representing the uncertainty 
+     */
+    void getCov( Mat &Sx) const {
+      Sx = Sx_;
+    }
+
+    /**
+     * Get the lower triangular part of the Cholesky decomposition 
+     * on the covariance matrx Sx_ 
+     * \param[out] Sx_Chol_L the lower triangular part of the Choloesky decomposition
+     */
+    void getCovCholeskyDecompLower( Mat &Sx_Chol_L){
+      if(!isValid_Sx_L_){
+	::Eigen::LLT<Mat> cholesky( Sx_ );
+	Sx_L_ = cholesky.matrixL();
+	isValid_Sx_L_ = true;
+      }
+      Sx_Chol_L = Sx_L_;
+    }
+
+    /** 
+     * Get the invserve covariance matrix 
+     * \param[out] Sx_inv inverse covariance
+     */ 
+    void getCovInv( Mat &Sx_inv){
+      if(!isValid_Sx_inv_){
+	Sx_inv_ = Sx_.inverse(); 
+	isValid_Sx_inv_ = true;
+      }
+      Sx_inv = Sx_inv_;
+    }
+
+    /** 
+     * Get the determinant of the covariance
+     * \return determinant
+     */
+    double getCovDet(){
+      if(!isValid_Sx_det_){
+	Sx_det_ = Sx_.determinant();
+	isValid_Sx_det_ = true;
+      }
+      return Sx_det_;
+    }
+
+    /** 
+     * Get the vector and covariance matrix
+     * \param[out] x vector
+     * \param[out] Sx uncertainty
+     */
+    void get( Vec &x, Mat &Sx) const {
+      get(x);
+      getCov(Sx);
+    }
+
+    /** 
+     * Get the vector and time
+     * \param[out] x vector
+     * \param[out] t time
+     */
+    void get( Vec &x, TimeStamp &t) const {
+      get(x);
+      t = t_;
+    }
+
+    /** 
+     * Get the vector, covariance matrix, and time
+     * \param[out] x vector
+     * \param[out] Sx uncertainty
+     * \param[out] t time
+     */
+    void get( Vec &x, Mat &Sx, TimeStamp &t) const {
+      get(x);
+      getCov(Sx);
+      t = t_;
+    }
+
+    /** 
+     * Get an element of the vector
+     * \param[in] n element index
+     * \return element n
+     */
+    double get( const int n ) const { return x_(n);}
+
+    /**
+     * Get the time
+     * \return time
+     */
+    TimeStamp getTime() const {
+      return t_;
+    }
+
+    /** 
+     * Get the dimension
+     * \return dimension
+     */ 
+    unsigned int getNDim() const { return nDim; }
+
+    /**
+     * Calculate the squared Mahalanobis distance to another random vector of the same type
+     * \param[in] to the RandomVec containing the vector we are measuring to 
+     */
+    double mahalanobisDist2(const RandomVec<nDim> &to ){
+      if(!isValid_Sx_inv_){
+	Sx_inv_ = Sx_.inverse(); 
+	isValid_Sx_inv_ = true;
+      }
+      e_ = to.x_ - x_;
+      return (e_.transpose() * Sx_inv_ * e_);
+    }
+
+    /**
+     * Calculate the squared Mahalanobis distance to another random vector of the same type
+     * \param[in] to_x the vector we are measuring to 
+     */
+    double mahalanobisDist2(const typename RandomVec<nDim>::Vec &to_x ){
+      if(!isValid_Sx_inv_){
+	Sx_inv_ = Sx_.inverse();
+	isValid_Sx_inv_ = true;
+      }
+      e_ = to_x - x_;
+      return (e_.transpose() * Sx_inv_ * e_);
+    }
+
+    /**
+     * Calculate the Gaussian likelihood of a given evaluation point
+     * \param[in] x_eval the evaluation point
+     * \param[out] mDist2 if not NULL, the pointed to variable will be overwritten by the 
+     * squared mahalanobis distance used to calculate the likelihood
+     */ 
+    double evalGaussianLikelihood(const RandomVec<nDim> &x_eval,
+				  double* mDist2 = NULL){
+      if(!isValid_Sx_det_){
+	Sx_det_ = Sx_.determinant();
+	gaussian_pdf_factor_ = sqrt( pow( 2*PI, nDim ) * Sx_det_ );
+	isValid_Sx_det_ = true;
+      }
+      double md2 = mahalanobisDist2( x_eval );
+      double l = ( exp(-0.5 * md2 ) / gaussian_pdf_factor_ );
+      if( l != l) //If md2 is very large, l will become NAN;
+	l = 0;
+      if(mDist2 != NULL)
+	*mDist2 = md2;
+      return l;
+    }
+
+    /**
+     * Calculate likelihood
+     * \param[in] x_eval the evaluation point
+     * \param[out] mDist2 if not NULL, the pointed to variable will be overwritten by the 
+     * squared mahalanobis distance used to calculate the likelihood
+     */ 
+    double evalGaussianLikelihood(const typename RandomVec<nDim>::Vec &x_eval,
+				  double* mDist2 = NULL){
+      if(!isValid_Sx_det_){
+	Sx_det_ = Sx_.determinant();
+	gaussian_pdf_factor_ = sqrt( pow( 2*PI, nDim ) * Sx_det_ );
+	isValid_Sx_det_ = true;
+      }
+      double md2 = mahalanobisDist2( x_eval );
+      double l = ( exp(-0.5 * md2 ) / gaussian_pdf_factor_ );
+      if( l != l) //If md2 is very large, l will become NAN;
+	l = 0;
+      if(mDist2 != NULL)
+	*mDist2 = md2;
+      return l;
+    }
+
+    /** 
+     * Sample this random vector
+     * \param[out] s_sample The sampled vector, with time and covariance copied from this random vector
+     */
+    void sample( RandomVec<nDim> &s_sample ){
+    
+      Vec x_sample, indep_noise;
+
+      if(!isValid_Sx_L_){
+	::Eigen::LLT<Mat> cholesky( Sx_ );
+	Sx_L_ = cholesky.matrixL();
+	isValid_Sx_L_ = true;
+      }
+
+      int n = Sx_L_.cols();
+      for(int i = 0; i < n; i++){
+	indep_noise(i) = genGaussian_();
+      }
+      x_sample = x_ + Sx_L_ * indep_noise;
+      s_sample.set( x_sample, Sx_, t_ );
+
+    }
+
+
+    /** 
+     * Sample this random vector and write the result over the mean x_;
+     */
+    void sample(){
+    
+      Vec x_sample, indep_noise;
+
+      if(!isValid_Sx_L_){
+	::Eigen::LLT<Mat> cholesky( Sx_ );
+	Sx_L_ = cholesky.matrixL();
+	isValid_Sx_L_ = true;
+      }
+    
+      int n = Sx_L_.cols();
+      for(int i = 0; i < n; i++){
+	indep_noise(i) = genGaussian_();
+      }
+      x_ += Sx_L_ * indep_noise;
+
+    }
+
+  protected:
+
+    Vec x_; /**< \brief State */
+    TimeStamp t_; /**< \brief timestamp */
+    
+  private:
+
+    Mat Sx_; /**< Covariance */
+    Mat Sx_inv_; /**< Inverse covariance */
+    bool isValid_Sx_inv_; /**< Inverse covariance is up to date */
+    double Sx_det_; /**< Determinant of Sx_ */
+    double gaussian_pdf_factor_; /**< \f[ \sqrt{ (2\pi)^n)|\Sigma| } \f]*/
+    bool isValid_Sx_det_; /**< Determinant of Sx_ is up to date */
+    Mat Sx_L_; /**< Lower triangular part of Cholesky decomposition on Sx_ */
+    bool isValid_Sx_L_; /**< Lower triangular part of Cholesky decomposition on Sx_ is up to date */
+
+    Vec e_; /**< temporary */
+
+    /** normal distribution random number generator */ 
+    static ::boost::variate_generator< ::boost::mt19937, 
+				       ::boost::normal_distribution<double> > genGaussian_;
+
+    /** \brief Dimensionality check during initialization */
+    void dimCheck(){
+      assert(nDim > 0);
+    }
+
   };
 
-  /** 
-   * [] Operator
-   */
-  double& operator[] (const int n){ 
-    assert(n >= 0 && n < nDim_);
-    return x_(n);
-  }
-
-  /** 
-   * Set the vector
-   * \param[in] x vector to be set
-   */
-  void set( const VecType &x ){x_ = x;}
-
-  /** 
-   * Set the covariance for uncertainty
-   * \param[in] Sx uncertainty to be set
-   */
-  void setCov( const MatType &Sx){
-    Sx_ = Sx;
-    isValid_Sx_L_ = false; 
-    isValid_Sx_inv_ = false;
-    isValid_Sx_det_ =false;
-  }
-
-  /**
-   * Set the time
-   * \param[in] t time
-   */
-  void setTime( const TimeStamp &t ){
-    t_ = t;
-  }
-
-  /** 
-   * Set the vector with a covariance matrix
-   * \param[in] x vector to be set
-   * \param[in] Sx covariance to be set
-   */
-  void set( const VecType &x, const MatType &Sx){
-    set(x);
-    setCov(Sx);
-  }
-
-  /** 
-   * Set the vector with a time
-   * \param[in] x vector to be set
-   * \param[in] t time
-   */
-  void set( const VecType &x, const TimeStamp &t){
-    set(x);
-    t_ = t;
-  }
-
-  /** 
-   * Set the vector with a covariance matrix, and time
-   * \param[in] x vector to be set
-   * \param[in] Sx covariance to be set
-   * \param[in] t time
-   */
-  void set( const VecType &x, const MatType &Sx, const TimeStamp &t){
-    set(x);
-    setCov(Sx);
-    t_ = t;
-  }
-
-  /**
-   * Get the vector
-   * \return x vector
-   */
-  VecType get() const { return x_;}
-
-  /** 
-   * Get the vector
-   * \param[out] x vector
-   */
-  void get( VecType &x ) const {x = x_;}
-
-  /**
-   * Get the covariance matrix
-   * \return Sx covariance representing the uncertainty
-   */
-  MatType getCov() const { return Sx_; }
-
-  /** 
-   * Get the covariance matrix
-   * \param[out] Sx uncertainty representing the uncertainty 
-   */
-  void getCov( MatType &Sx) const {
-    Sx = Sx_;
-  }
-
-  /**
-   * Get the lower triangular part of the Cholesky decomposition 
-   * on the covariance matrx Sx_ 
-   * \param[out] Sx_Chol_L the lower triangular part of the Choloesky decomposition
-   */
-  void getCovCholeskyDecompLower( MatType &Sx_Chol_L){
-    if(!isValid_Sx_L_){
-      ::Eigen::LLT<MatType> cholesky( Sx_ );
-      Sx_L_ = cholesky.matrixL();
-      isValid_Sx_L_ = true;
-    }
-    Sx_Chol_L = Sx_L_;
-  }
-
-  /** 
-   * Get the invserve covariance matrix 
-   * \param[out] Sx_inv inverse covariance
-   */ 
-  void getCovInv( MatType &Sx_inv){
-    if(!isValid_Sx_inv_){
-      Sx_inv_ = Sx_.inverse(); 
-      isValid_Sx_inv_ = true;
-    }
-    Sx_inv = Sx_inv_;
-  }
-
-  /** 
-   * Get the determinant of the covariance
-   * \return determinant
-   */
-  double getCovDet(){
-    if(!isValid_Sx_det_){
-      Sx_det_ = Sx_.determinant();
-      isValid_Sx_det_ = true;
-    }
-    return Sx_det_;
-  }
-
-  /** 
-   * Get the vector and covariance matrix
-   * \param[out] x vector
-   * \param[out] Sx uncertainty
-   */
-  void get( VecType &x, MatType &Sx) const {
-    get(x);
-    getCov(Sx);
-  }
-
-  /** 
-   * Get the vector and time
-   * \param[out] x vector
-   * \param[out] t time
-   */
-  void get( VecType &x, TimeStamp &t) const {
-    get(x);
-    t = t_;
-  }
-
-  /** 
-   * Get the vector, covariance matrix, and time
-   * \param[out] x vector
-   * \param[out] Sx uncertainty
-   * \param[out] t time
-   */
-  void get( VecType &x, MatType &Sx, TimeStamp &t) const {
-    get(x);
-    getCov(Sx);
-    t = t_;
-  }
-
-  /** 
-   * Get an element of the vector
-   * \param[in] n element index
-   * \return element n
-   */
-  double get( const int n ) const { return x_(n);}
-
-  /**
-   * Get the time
-   * \return time
-   */
-  TimeStamp getTime() const {
-    return t_;
-  }
-
-  /** 
-   * Get the dimension
-   * \return dimension
-   */ 
-  unsigned int getNDim() const { return nDim_; }
-
-  /**
-   * Calculate the squared Mahalanobis distance to another random vector of the same type
-   * \param[in] to the RandomVec containing the vector we are measuring to 
-   */
-  double mahalanobisDist2( RandomVec<VecType, MatType> &to ){
-    if(!isValid_Sx_inv_){
-      Sx_inv_ = Sx_.inverse(); 
-      isValid_Sx_inv_ = true;
-    }
-    e_ = to.x_ - x_;
-    return (e_.transpose() * Sx_inv_ * e_);
-  }
-
-  /**
-   * Calculate the squared Mahalanobis distance to another random vector of the same type
-   * \param[in] to_x the vector we are measuring to 
-   */
-  double mahalanobisDist2( typename RandomVec<VecType, MatType>::Vec &to_x ){
-    if(!isValid_Sx_inv_){
-      Sx_inv_ = Sx_.inverse();
-      isValid_Sx_inv_ = true;
-    }
-    e_ = to_x - x_;
-    return (e_.transpose() * Sx_inv_ * e_);
-  }
-
-  /**
-   * Calculate the Gaussian likelihood of a given evaluation point
-   * \param[in] x_eval the evaluation point
-   * \param[out] mDist2 if not NULL, the pointed to variable will be overwritten by the 
-   * squared mahalanobis distance used to calculate the likelihood
-   */ 
-  double evalGaussianLikelihood( RandomVec<VecType, MatType> &x_eval,
-				 double* mDist2 = NULL){
-    if(!isValid_Sx_det_){
-      Sx_det_ = Sx_.determinant();
-      gaussian_pdf_factor_ = sqrt( pow( 2*PI, nDim_ ) * Sx_det_ );
-      isValid_Sx_det_ = true;
-    }
-    double md2 = mahalanobisDist2( x_eval );
-    double l = ( exp(-0.5 * md2 ) / gaussian_pdf_factor_ );
-    if( l != l) //If md2 is very large, l will become NAN;
-      l = 0;
-    if(mDist2 != NULL)
-      *mDist2 = md2;
-    return l;
-  }
-
-  /**
-   * Calculate likelihood
-   * \param[in] x_eval the evaluation point
-   * \param[out] mDist2 if not NULL, the pointed to variable will be overwritten by the 
-   * squared mahalanobis distance used to calculate the likelihood
-   */ 
-  double evalGaussianLikelihood( typename RandomVec<VecType, MatType>::Vec &x_eval,
-				 double* mDist2 = NULL){
-    if(!isValid_Sx_det_){
-      Sx_det_ = Sx_.determinant();
-      gaussian_pdf_factor_ = sqrt( pow( 2*PI, nDim_ ) * Sx_det_ );
-      isValid_Sx_det_ = true;
-    }
-    double md2 = mahalanobisDist2( x_eval );
-    double l = ( exp(-0.5 * md2 ) / gaussian_pdf_factor_ );
-    if( l != l) //If md2 is very large, l will become NAN;
-      l = 0;
-    if(mDist2 != NULL)
-      *mDist2 = md2;
-    return l;
-  }
-
-  /** 
-   * Sample this random vector
-   * \param[out] s_sample The sampled vector, with time and covariance copied from this random vector
-   */
-  void sample( RandomVec<VecType, MatType> &s_sample ){
-    
-    VecType x_sample, indep_noise;
-
-    if(!isValid_Sx_L_){
-      ::Eigen::LLT<MatType> cholesky( Sx_ );
-      Sx_L_ = cholesky.matrixL();
-      isValid_Sx_L_ = true;
-    }
-
-    if(gen_ == NULL){
-      gen_ = new ::boost::variate_generator< ::boost::mt19937, 
-					     ::boost::normal_distribution<double> >
-	(::boost::mt19937(rand()), ::boost::normal_distribution<double>());
-    }
-    
-    int n = Sx_L_.cols();
-    for(int i = 0; i < n; i++){
-      indep_noise(i) = (*gen_)();
-    }
-    x_sample = x_ + Sx_L_ * indep_noise;
-    s_sample.set( x_sample, Sx_, t_ );
-
-  }
-
-
-  /** 
-   * Sample this random vector and write the result over the mean x_;
-   */
-  void sample(){
-    
-    VecType x_sample, indep_noise;
-
-    if(!isValid_Sx_L_){
-      ::Eigen::LLT<MatType> cholesky( Sx_ );
-      Sx_L_ = cholesky.matrixL();
-      isValid_Sx_L_ = true;
-    }
-
-    if(gen_ == NULL){
-      gen_ = new ::boost::variate_generator< ::boost::mt19937, 
-					     ::boost::normal_distribution<double> >
-	(::boost::mt19937(rand()), ::boost::normal_distribution<double>());
-    }
-    
-    int n = Sx_L_.cols();
-    for(int i = 0; i < n; i++){
-      indep_noise(i) = (*gen_)();
-    }
-    x_ += Sx_L_ * indep_noise;
-
-  }
-
-private:
-
-  VecType x_; /**< State */
-  unsigned int nDim_; /**< Number of dimensions */
-  MatType Sx_; /**< Covariance */
-  MatType Sx_inv_; /**< Inverse covariance */
-  bool isValid_Sx_inv_; /**< Inverse covariance is up to date */
-  double Sx_det_; /**< Determinant of Sx_ */
-  double gaussian_pdf_factor_; /**< \f[ \sqrt{ (2\pi)^n)|\Sigma| } \f]*/
-  bool isValid_Sx_det_; /**< Determinant of Sx_ is up to date */
-  MatType Sx_L_; /**< Lower triangular part of Cholesky decomposition on Sx_ */
-  bool isValid_Sx_L_; /**< Lower triangular part of Cholesky decomposition on Sx_ is up to date */
-  TimeStamp t_; /**< timestamp */
-
-  VecType e_; /**< temporary */
-
+  template<unsigned int nDim>
   ::boost::variate_generator< ::boost::mt19937, 
-			      ::boost::normal_distribution<double> >* gen_;/**< normal distribution random number generator */ 
-
-  /** Dimensionality check during initialization */
-  bool dimCheck(){
-
-    if( Sx_.rows() != Sx_.cols() ){
-      std::cerr << "Error: MatType must be a square matrix \n";
-      return false;
-    }
-    if( Sx_.rows() != x_.size() ){
-      std::cerr << "Error: VecType and MatType dimension mismatch \n";
-      return false;
-    }
-    nDim_ = x_.size();
-    return true;
-  }
-
-};
+			      ::boost::normal_distribution<double> >
+  RandomVec<nDim>::genGaussian_ =
+    ::boost::variate_generator< ::boost::mt19937, 
+				::boost::normal_distribution<double> >
+    (::boost::mt19937(rand()), ::boost::normal_distribution<double>());
 
 } // namespace rfs
 

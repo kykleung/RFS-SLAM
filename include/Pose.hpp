@@ -28,7 +28,7 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Pose classes for defining vehicle state
+// class for defining pose state
 // Keith Leung 2013
 
 #ifndef POSE_HPP
@@ -38,114 +38,329 @@
 
 namespace rfs{
 
-
-/********** Define a 1d vehicle pose state **********/
-
-/**
- * \class Pose1d
- * Vehicle position in 1d space
- * \brief Vehicle position
- * \author Keith Leung
- * \note The custom constructors are defined for convenience.
- */
-class Pose1d : public RandomVec< ::Eigen::Matrix<double, 1, 1>,
-				 ::Eigen::Matrix<double, 1, 1> >
-{
-public:
-  
-  /** For using Eigen fixed-size matrices with STL containers */
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
-
-  /** Default constructor */
-  Pose1d();
-
-  /** Constructor 
-   *  \param[in] x position
-   *  \param[in] Sx variance
-   *  \param[in] t time
-   */
-  Pose1d( double x, double Sx, const TimeStamp &t);
-
-  /** Constructor 
-   *  \param[in] x position
-   *  \param[in] Sx variance
-   *  \param[in] t time
-   */
-  Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const ::Eigen::Matrix<double, 1, 1> &Sx, const TimeStamp &t);
-
-  /** Constructor 
-   *  \param[in] x position
-   *  \param[in] t time
-   */
-  Pose1d( double x, const TimeStamp &t);
-
-  /** Constructor 
-   *  \param[in] x position
-   *  \param[in] t time
-   */
-  Pose1d(const ::Eigen::Matrix<double, 1, 1> &x, const TimeStamp &t);
-
-  /** Destructor */
-  ~Pose1d(){}
-
-};
-
-/********** 2d vehicle pose state **********/
-
-/**
- * \class Pose2d
- * \f[ \mathbf{x} = \begin{bmatrix} x\\ y\\ \theta \end{bmatrix} \f]
- * \brief 2d vehicle Pose for (x,y) coordinate and rotation
- * \author Keith Leung
- * \note This class is derived from pose only so that we can add a 
- *  custom custructor for our convenience.
- */
-class Pose2d : public RandomVec< ::Eigen::Vector3d, ::Eigen::Matrix3d >
-{
-
-public:
-
-  /** For using Eigen fixed-size matrices with STL containers */
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
-
-  /** 
-   * Default constructor
-   */
-  Pose2d();
-
-  /** 
-   * Constructor - defined only for our convenience
-   * \param[in] x pose vector
-   * \param[in] Sx pose uncertainty covariance
-   * \param[in] t time
-   */
-  Pose2d(const Vec &x, const Mat &Sx, const TimeStamp &t);
-
-  /** 
-   * Constructor - defined only for our convenience
-   * \param[in] x pose vector 
-   * \param[in] t time
-   */
-  Pose2d(const Vec &x, const TimeStamp &t);
-
   /**
-   * Constructor - defined only for our convenience
-   * \param[in] x x-position
-   * \param[in] y y-position
-   * \param[in] theta orientation
-   * \param[in] var_x x-position variance
-   * \param[in] var_y y-position variance
-   * \param[in] var_theta theta orientation variance
-   * \param[in] t time
+   * \class Pose
+   * \brief A random vector with position and orientation.
+   * \note The position components are always placed before orientation ones.
+   * \tparam nDim Dimension of the pose vector
+   * \tparam nPosDim Dimension of the position component
+   * \tparam nRotDim Dimension of the rotation component
    */
-  Pose2d( double x, double y, double theta,
-	  double var_x, double var_y, double var_theta,
-	  const TimeStamp &t );
+  template<unsigned int nDim, unsigned int nPosDim, unsigned int nRotDim>
+  class Pose : public RandomVec< nDim >
+  {
+  public:
+    
+    /** \brief the full vector */
+    typedef typename RandomVec<nDim>::Vec Vec;
 
-  /** Default destructor */
-  ~Pose2d();
+    /** \brief the full covariance matrix */
+    typedef typename RandomVec<nDim>::Mat Cov;
 
-};
+    /** \brief the full covariance matrix */
+    typedef typename RandomVec<nDim>::Mat Mat;
+
+    /** \brief Position vector */
+    typedef ::Eigen::Matrix<double, nPosDim, 1>PosVec; 
+    
+    /** \brief Position covariance matrix */
+    typedef ::Eigen::Matrix<double, nPosDim, nPosDim>PosCov;
+
+    /** \brief Orientation vector */
+    typedef ::Eigen::Matrix<double, nRotDim, 1>RotVec; 
+
+    /** \brief Orientation covariance matrix */
+    typedef ::Eigen::Matrix<double, nRotDim, nRotDim>RotCov; 
+
+    /** \brief Constructor */
+    Pose()
+    {
+      dimCheck();
+    }
+
+    /**
+     * \brief Constructor 
+     * \param[in] x Vector
+     * \param[in] Sx Covariance matrix
+     * \param[in] t Timestamp
+     */
+    Pose(Vec const &x, Cov const &Sx, const TimeStamp &t = TimeStamp() ) : RandomVec<Vec::RowsAtCompileTime>(x, Sx, t) {}
+    
+    /**
+     * \brief Constructor 
+     * \param[in] x Vector
+     * \param[in] SxVec Array with diagonal entries of Covariance matrix
+     * \param[in] t Timestamp
+     */
+    Pose(Vec const &x, double const * const &SxVec, const TimeStamp &t = TimeStamp() ) : RandomVec<Vec::RowsAtCompileTime>(x, SxVec, t) {}
+    /**
+     * \brief Constructor 
+     * \param[in] x Vector
+     * \param[in] t Timestamp
+     */
+    Pose(Vec const &x, const TimeStamp &t = TimeStamp() ) : RandomVec<Vec::RowsAtCompileTime>(x, t) {}
+
+    /**
+     * \brief Constructor with vector and covariance matrix set to zero
+     * \param[in] t Timestamp
+     */
+    Pose(const TimeStamp &t ) : RandomVec<Vec::RowsAtCompileTime>(t) {}
+
+    
+    /** \brief Destructor */
+    ~Pose(){}
+
+    /** \brief Get the position vector 
+     *  \param[out] x position vector 
+     */
+    void getPos(PosVec &x) const {
+      x = this->x_.template head<nPosDim>();
+    }
+
+    /** \brief Get the position vector with the time stamp 
+     *  \param[out] x position vector 
+     *  \param[out] t timestamp 
+     */
+    void getPos(PosVec &x, TimeStamp &t) const{
+      x = this->x_.template head<nPosDim>();
+      t = this->t_;
+    }
+
+    /** \brief Get the position vector 
+     *  \return position vector 
+     */
+    PosVec getPos() const{
+      return this->x_.template head<nPosDim>();
+    }
+
+    /** \brief Get the rotation vector 
+     *  \param[out] r rotation vector
+     */
+    void getRot(RotVec &r) const{
+      r = this->x_.template segment<nRotDim>(nPosDim);
+    }
+
+    /** \brief Get the rotation vector with the time stamp 
+     *  \param[out] r rotation vector
+     *  \param[out] t timestamp
+     */
+    void getRot(RotVec &r, TimeStamp &t) const{
+      r = this->x_.template segment<nRotDim>(nPosDim);
+      t = this->t_;
+    }
+
+    /** \brief Get the rotation vector
+     *  \return rotation vector
+     */
+    RotVec getRot() const{
+      return this->x_.template segment<nRotDim>(nPosDim);
+    }
+    
+  private:
+    
+    /** \brief Check if the template parameters for dimensionality are valid */
+    void dimCheck(){
+      assert(nDim >= nPosDim);
+      assert(nDim >= nRotDim);
+      assert(nDim == nPosDim + nRotDim);
+    }
+
+  };
+
+  /** 
+   * \brief Partial template specialization for Pose with only rotation and without position.
+   */
+  template<unsigned int nDim, unsigned int nRotDim>
+  class Pose<nDim, 0, nRotDim> : public RandomVec< nDim >
+  {
+  public:
+
+    /** \brief the full vector */
+    typedef typename RandomVec<nDim>::Vec Vec;
+
+    /** \brief the full covariance matrix */
+    typedef typename RandomVec<nDim>::Mat Cov;
+
+    /** \brief the full covariance matrix */
+    typedef typename RandomVec<nDim>::Mat Mat;
+
+    /** \brief Orientation vector */
+    typedef ::Eigen::Matrix<double, nRotDim, 1>RotVec; 
+
+    /** \brief Orientation covariance matrix */
+    typedef ::Eigen::Matrix<double, nRotDim, nRotDim>RotCov; 
+
+    /** \brief Constructor */
+    Pose()
+    {
+      dimCheck();
+    }
+
+    /**
+     * \brief Constructor 
+     * \param[in] x Vector
+     * \param[in] Sx Covariance matrix
+     * \param[in] t Timestamp
+     */
+    Pose(Vec const &x, Cov const &Sx, const TimeStamp &t = TimeStamp() ) : RandomVec<Vec::RowsAtCompileTime>(x, Sx, t) {}
+    
+    /**
+     * \brief Constructor 
+     * \param[in] x Vector
+     * \param[in] SxVec Array with diagonal entries of Covariance matrix
+     * \param[in] t Timestamp
+     */
+    Pose(Vec const &x, double const * const &SxVec, const TimeStamp &t = TimeStamp() ) : RandomVec<Vec::RowsAtCompileTime>(x, SxVec, t) {}
+
+    /**
+     * \brief Constructor 
+     * \param[in] x Vector
+     * \param[in] t Timestamp
+     */
+    Pose(Vec const &x, const TimeStamp &t = TimeStamp() ) : RandomVec<Vec::RowsAtCompileTime>(x, t) {}
+    
+    /**
+     * \brief Constructor with vector and covariance matrix set to zero
+     * \param[in] t Timestamp
+     */
+    Pose(const TimeStamp &t ) : RandomVec<Vec::RowsAtCompileTime>(t) {}
+    
+    /** \brief Destructor */
+    ~Pose(){}
+
+    /** \brief Get the rotation vector 
+     *  \param[out] r rotation vector
+     */
+    void getRot(RotVec &r) const{
+      r = this->x_.template head<nRotDim>();
+    }
+
+    /** \brief Get the rotation vector with the time stamp 
+     *  \param[out] r rotation vector
+     *  \param[out] t timestamp
+     */
+    void getRot(RotVec &r, TimeStamp &t) const{
+      r = this->x_.template head<nRotDim>();
+      t = this->t_;
+    }
+
+    /** \brief Get the rotation vector
+     *  \return rotation vector
+     */
+    RotVec getRot() const{
+      return this->x_.template head<nRotDim>();
+    }
+    
+  private:
+    
+    /** \brief Check if the template parameters for dimensionality are valid */
+    void dimCheck(){
+      assert(nDim <= nRotDim);
+    }
+
+  };
+
+  /** 
+   * \brief Partial template specialization for Pose with only position and without rotation.
+   */
+  template<unsigned int nDim, unsigned int nPosDim>
+  class Pose<nDim, nPosDim, 0> : public RandomVec< nDim >
+  {
+  public:
+
+    /** \brief the full vector */
+    typedef typename RandomVec<nDim>::Vec Vec;
+
+    /** \brief the full covariance matrix */
+    typedef typename RandomVec<nDim>::Mat Cov;
+
+    /** \brief the full covariance matrix */
+    typedef typename RandomVec<nDim>::Mat Mat;
+    
+    /** \brief Position vector */
+    typedef ::Eigen::Matrix<double, nPosDim, 1>PosVec; 
+    
+    /** \brief Position covariance matrix */
+    typedef ::Eigen::Matrix<double, nPosDim, nPosDim>PosCov;
+
+    /** \brief Constructor */
+    Pose(){
+      dimCheck();
+    }
+
+    
+    /**
+     * \brief Constructor 
+     * \param[in] x Vector
+     * \param[in] Sx Covariance matrix
+     * \param[in] t Timestamp
+     */
+    Pose(Vec const &x, Cov const &Sx, const TimeStamp &t = TimeStamp() ) : RandomVec<Vec::RowsAtCompileTime>(x, Sx, t) {}
+    
+    /**
+     * \brief Constructor 
+     * \param[in] x Vector
+     * \param[in] SxVec Array with diagonal entries of Covariance matrix
+     * \param[in] t Timestamp
+     */
+    Pose(Vec const &x, double const * const &SxVec, const TimeStamp &t = TimeStamp() ) : RandomVec<Vec::RowsAtCompileTime>(x, SxVec, t) {}
+
+    /**
+     * \brief Constructor 
+     * \param[in] x Vector
+     * \param[in] t Timestamp
+     */
+    Pose(Vec const &x, const TimeStamp &t = TimeStamp() ) : RandomVec<Vec::RowsAtCompileTime>(x, t) {}
+    
+    /**
+     * \brief Constructor with vector and covariance matrix set to zero
+     * \param[in] t Timestamp
+     */
+    Pose(const TimeStamp &t ) : RandomVec<Vec::RowsAtCompileTime>(t) {}
+
+    /** \brief Destructor */
+    ~Pose(){}
+
+    /** \brief Get the position vector 
+     *  \param[out] x position vector 
+     */
+    void getPos(PosVec &x) const{
+      x = this->x_.template head<nPosDim>();
+    }
+
+    /** \brief Get the position vector with the time stamp 
+     *  \param[out] x position vector 
+     *  \param[out] t timestamp 
+     */
+    void getPos(PosVec &x, TimeStamp &t) const{
+      x = this->x_.template head<nPosDim>();
+      t = this->t_;
+    }
+
+    /** \brief Get the position vector 
+     *  \return position vector 
+     */
+    PosVec getPos() const{
+      return this->x_.template head<nPosDim>();
+    }
+    
+  private:
+    
+    /** \brief Check if the template parameters for dimensionality are valid */
+    void dimCheck(){
+      assert(nDim < nPosDim);
+    }
+
+  };
+
+  typedef Pose<1, 1, 0> Pose1d;
+  typedef Pose<3, 2, 1> Pose2d;
+  typedef Pose<6, 3, 3> Pose3d;
+
+  typedef Pose<1, 1, 0> Position1d;
+  typedef Pose<2, 2, 0> Position2d;
+  typedef Pose<3, 3, 0> Position3d;
+
 
 }
 

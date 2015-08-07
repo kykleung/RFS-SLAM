@@ -1,7 +1,7 @@
 /*
  * Software License Agreement (New BSD License)
  *
- * Copyright (c) 2013, Keith Leung, Felipe Inostroza
+ * Copyright (c) 2014, Keith Leung, Felipe Inostroza
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -28,9 +28,6 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Class for using the Kalman filter equations
-// Felipe Inostroza 2013
-
 #ifndef KALMANFILTER_HPP
 #define KALMANFILTER_HPP
 
@@ -45,9 +42,8 @@ namespace rfs
  * \class KalmanFilter
  * \brief An Extended Kalman Filter (EKF) for performing estimate predictions and 
  * updates on a Landmark, given a MeasurementModel, ProcessModel, and a sensor Pose
- * \note In the future, we will augment this class with two more correct and update
- * functions so this can be used to update sensor pose, but there is no immediate
- * need for this.
+ * \note This class is thread safe, and any class that is used with RBPHDFilter or 
+ * FastSLAM also needs to be thread safe.
  * \tparam ProcessModelType A process model derived from 
  * ProcessModel or StaticProcessModel
  * \tparam MeasurementModelType A measurement model derived from MeasurementModel
@@ -155,30 +151,18 @@ public:
 				   ::Eigen::Matrix< double, TMeasurement::Vec::RowsAtCompileTime, 1> &z_act,
 				   ::Eigen::Matrix< double, TMeasurement::Vec::RowsAtCompileTime, 1> &z_innov);
 
+
 protected:
 
   MeasurementModelType *pMeasurementModel_;
   ProcessModelType *pProcessModel_;
-
-  TMeasurement measurement_exp; /**< expected measurement */
-  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, TMeasurement::Vec::RowsAtCompileTime>  K; /**< Kalman gain */
-  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, TLandmark::Vec::RowsAtCompileTime > H; /**< measurement model Jacobian */
-  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, TMeasurement::Vec::RowsAtCompileTime> S; /**< innovation covariance */
-  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, TMeasurement::Vec::RowsAtCompileTime> S_inv; /**< inverse innovation covariance */
+ 
   ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, TLandmark::Vec::RowsAtCompileTime>  I; /**< identity matrix */
-  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, 1> z_act; /**< measurement - actual */
-  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, 1> z_exp; /**< measurement - expected */
-  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, 1> z_innov; /**< measurement - innovation */
-  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, 1> m; /**< mean */
-  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, 1> m_updated; /**< mean - updated */
-  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, TLandmark::Vec::RowsAtCompileTime> P; /**< covariance */
-  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, TLandmark::Vec::RowsAtCompileTime> P_updated; /**< covariance - updated */
-  RandomVec< ::Eigen::Matrix < double , TMeasurement::Vec::RowsAtCompileTime, 1>, ::Eigen::Matrix < double , TMeasurement::Vec::RowsAtCompileTime, TMeasurement::Vec::RowsAtCompileTime> > innov; /**< RandomVec form of innovation */
 
 };
 
 //********** Implementation of the standard Kalman Filter  **********/
-// Felipe Inostroza 2013, Keith Leung 2014
+// Felipe Inostroza 2014, Keith Leung 2014
 
 template <class ProcessModelType, class MeasurementModelType> 
 KalmanFilter<ProcessModelType, MeasurementModelType>::
@@ -228,6 +212,20 @@ correct(const TPose &pose, const TMeasurement &measurement,
 	TLandmark &landmark_current, TLandmark &landmark_updated,
 	double* zLikelihood, double* mahalanobisDist2 ){
 
+  TMeasurement measurement_exp; /**< expected measurement */
+  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, TMeasurement::Vec::RowsAtCompileTime>  K; /**< Kalman gain */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, TLandmark::Vec::RowsAtCompileTime > H; /**< measurement model Jacobian */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, TMeasurement::Vec::RowsAtCompileTime> S; /**< innovation covariance */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, TMeasurement::Vec::RowsAtCompileTime> S_inv; /**< inverse innovation covariance */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, 1> z_act; /**< measurement - actual */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, 1> z_exp; /**< measurement - expected */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, 1> z_innov; /**< measurement - innovation */
+  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, 1> m; /**< mean */
+  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, 1> m_updated; /**< mean - updated */
+  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, TLandmark::Vec::RowsAtCompileTime> P; /**< covariance */
+  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, TLandmark::Vec::RowsAtCompileTime> P_updated; /**< covariance - updated */
+  RandomVec< TMeasurement::Vec::RowsAtCompileTime > innov; /**< RandomVec form of innovation */
+
   
   if(!pMeasurementModel_->measure( pose , landmark_current , measurement_exp , &H))
     return false; // invalid expected measurement produced
@@ -249,9 +247,9 @@ correct(const TPose &pose, const TMeasurement &measurement,
   if(zLikelihood != NULL){
     innov.set(z_exp, S);
     if(mahalanobisDist2 != NULL)
-      *zLikelihood = innov.evalGaussianLikelihood( z_act, mahalanobisDist2 );   
+      *zLikelihood = innov.evalGaussianLikelihood( measurement, mahalanobisDist2 );   
     else
-      *zLikelihood = innov.evalGaussianLikelihood( z_act ); 
+      *zLikelihood = innov.evalGaussianLikelihood( measurement ); 
     if(*zLikelihood != *zLikelihood) // When likelihood is so small that it becomes NAN
       *zLikelihood = 0;  
   }
@@ -269,14 +267,28 @@ correct(const TPose &pose,
 	std::vector<double> *zLikelihood, 
 	std::vector<double> *mahalanobisDist2 ){
 
+  TMeasurement measurement_exp; /**< expected measurement */
+  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, TMeasurement::Vec::RowsAtCompileTime>  K; /**< Kalman gain */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, TLandmark::Vec::RowsAtCompileTime > H; /**< measurement model Jacobian */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, TMeasurement::Vec::RowsAtCompileTime> S; /**< innovation covariance */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, TMeasurement::Vec::RowsAtCompileTime> S_inv; /**< inverse innovation covariance */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, 1> z_act; /**< measurement - actual */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, 1> z_exp; /**< measurement - expected */
+  ::Eigen::Matrix <double, TMeasurement::Vec::RowsAtCompileTime, 1> z_innov; /**< measurement - innovation */
+  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, 1> m; /**< mean */
+  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, 1> m_updated; /**< mean - updated */
+  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, TLandmark::Vec::RowsAtCompileTime> P; /**< covariance */
+  ::Eigen::Matrix <double, TLandmark::Vec::RowsAtCompileTime, TLandmark::Vec::RowsAtCompileTime> P_updated; /**< covariance - updated */
+  TMeasurement innov; /**< TMeasurement form of innovation */
+
  
   if(!pMeasurementModel_->measure( pose , landmark_current , measurement_exp , &H)){
     for(int i = 0; i < measurement.size(); i++){
       if(zLikelihood != NULL){ 
-	mahalanobisDist2->at(i) = 0;
+        zLikelihood->at(i) = 0;
       }
       if(mahalanobisDist2 != NULL){
-	zLikelihood->at(i) = 0;
+        mahalanobisDist2->at(i) = 0;
       }
     }
     return false; // invalid expected measurement produced
@@ -304,35 +316,25 @@ correct(const TPose &pose,
 	if(zLikelihood != NULL){
 	  innov.set(z_exp, S);
 	  if(mahalanobisDist2 != NULL){
-	    zl = innov.evalGaussianLikelihood( z_act, &md2 );
+	    zl = innov.evalGaussianLikelihood( measurement[i], &md2 );
 	    mahalanobisDist2->at(i) = md2;
 	  }
 	  else
-	    zl = innov.evalGaussianLikelihood( z_act ); 
+	    zl = innov.evalGaussianLikelihood( measurement[i] ); 
 	  if(zl != zl) // When likelihood is so small that it becomes NAN
 	    zl = 0;
 	  zLikelihood->at(i) = zl;
 	}
       }else{
 	if(zLikelihood != NULL){ 
-	  mahalanobisDist2->at(i) = 0;
+          zLikelihood->at(i) = 0;
 	}
 	if(mahalanobisDist2 != NULL){
-	  zLikelihood->at(i) = 0;
+          mahalanobisDist2->at(i) = 0;
 	}
       }
 
-      if(zLikelihood != NULL){
-	if(mahalanobisDist2 != NULL){
-	  zl = measurement_exp.evalGaussianLikelihood( z_act, &md2 );
-	  mahalanobisDist2->at(i) = md2;
-	}
-	else
-	  zl = measurement_exp.evalGaussianLikelihood( z_act ); 
-	if(zl != zl) // When likelihood is so small that it becomes NAN
-	  zl = 0;
-	zLikelihood->at(i) = zl;
-      }
+
   } 
  
   return true;

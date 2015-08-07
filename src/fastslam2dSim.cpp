@@ -28,32 +28,45 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define BOOST_NO_CXX11_SCOPED_ENUMS // required for boost/filesystem to work with C++11
 #include <boost/filesystem.hpp>
 #include <boost/lexical_cast.hpp>
-#include <libconfig.h++>
+#include <boost/program_options.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/xml_parser.hpp>
 #include "FastSLAM.hpp"
+#include "KalmanFilter_RngBrg.hpp"
+#include "MeasurementModel_RngBrg.hpp"
 #include "ProcessModel_Odometry2D.hpp"
 #include <stdio.h>
 #include <string>
+#include <sys/ioctl.h>
+
+#ifdef _PERFTOOLS_CPU
+#include <gperftools/profiler.h>
+#endif
+#ifdef _PERFTOOLS_HEAP
+#include <gperfools/heap-profiler.h>
+#endif
 
 using namespace rfs;
 
 /**
- * \class Simulator2d
+ * \class Simulator_FastSLAM_2d
  * \brief A 2d FastSLAM Simulator
  * \author Keith Leung
  */
-class Simulator2d{
+class Simulator_FastSLAM_2d{
 
 public:
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
 
-  Simulator2d(){
+  Simulator_FastSLAM_2d(){
     pFilter_ = NULL;
   }
   
-  ~Simulator2d(){
+  ~Simulator_FastSLAM_2d(){
     
     if(pFilter_ != NULL){
       delete pFilter_;
@@ -64,59 +77,63 @@ public:
   /** Read the simulator configuration file */
   bool readConfigFile(const char* fileName){
 
-    cfgFileName_ = fileName;
-    
-    try{
-      cfg_.readFile( fileName );
-    }catch( libconfig::FileIOException &ex){
-      printf("\nCannot read file: %s\n\n", fileName);
-      return false;
-    }catch( libconfig::ParseException &ex){
-      const char* error = ex.getError();
-      int line = ex.getLine();
-      printf("\n%s LINE %d\n\n", error, line);
-      return false;
-    }
-    kMax_ = cfg_.lookup("timesteps");
-    dT_ = cfg_.lookup("sec_per_timestep");
+     cfgFileName_ = fileName;
+
+    boost::property_tree::ptree pt;
+    boost::property_tree::xml_parser::read_xml(fileName, pt);
+
+    logResultsToFile_ = false;
+    if( pt.get("config.logging.logResultsToFile", 0) == 1 )
+      logResultsToFile_ = true;
+    logTimingToFile_ = false;
+    if( pt.get("config.logging.logTimingToFile", 0) == 1 )
+      logTimingToFile_ = true;
+    logDirPrefix_ = pt.get<std::string>("config.logging.logDirPrefix", "./");
+    if( *logDirPrefix_.rbegin() != '/')
+      logDirPrefix_ += '/';
+
+    kMax_ = pt.get<int>("config.timesteps");
+    dT_ = pt.get<double>("config.sec_per_timestep");
     dTimeStamp_ = TimeStamp(dT_);
+
+    nSegments_ = pt.get<int>("config.trajectory.nSegments");
+    max_dx_ = pt.get<double>("config.trajectory.max_dx_per_sec");
+    max_dy_ = pt.get<double>("config.trajectory.max_dy_per_sec");
+    max_dz_ = pt.get<double>("config.trajectory.max_dz_per_sec");
+    min_dx_ = pt.get<double>("config.trajectory.min_dx_per_sec");
+    vardx_ = pt.get<double>("config.trajectory.vardx");
+    vardy_ = pt.get<double>("config.trajectory.vardy");
+    vardz_ = pt.get<double>("config.trajectory.vardz");    
+
+    nLandmarks_ = pt.get<int>("config.landmarks.nLandmarks");
+    varlmx_ = pt.get<double>("config.landmarks.varlmx");
+    varlmy_ = pt.get<double>("config.landmarks.varlmy");
+
+    rangeLimitMax_ = pt.get<double>("config.measurements.rangeLimitMax");
+    rangeLimitMin_ = pt.get<double>("config.measurements.rangeLimitMin");
+    rangeLimitBuffer_ = pt.get<double>("config.measurements.rangeLimitBuffer");
+    Pd_ = pt.get<double>("config.measurements.probDetection");
+    c_ = pt.get<double>("config.measurements.clutterIntensity");
+    varzr_ = pt.get<double>("config.measurements.varzr");
+    varzb_ = pt.get<double>("config.measurements.varzb");
+   
+    nParticles_ = pt.get("config.filter.nParticles", 200);
+
+    pNoiseInflation_ = pt.get("config.filter.predict.processNoiseInflationFactor", 1.0);
+
+    zNoiseInflation_ = pt.get("config.filter.update.measurementNoiseInflationFactor", 1.0);
+    maxNDataAssocHypotheses_ = pt.get<int>("config.filter.update.maxNDataAssocHypotheses", 1);
+    maxDataAssocLogLikelihoodDiff_ = pt.get("config.filter.update.maxDataAssocLogLikelihoodDiff", 3.0);
+
+    innovationRangeThreshold_ = pt.get<double>("config.filter.update.KalmanFilter.innovationThreshold.range");
+    innovationBearingThreshold_ = pt.get<double>("config.filter.update.KalmanFilter.innovationThreshold.bearing");
+
+    minLogMeasurementLikelihood_ = pt.get("config.filter.weighting.minLogMeasurementLikelihood",-10.0);
+
+    effNParticleThreshold_ = pt.get("config.filter.resampling.effNParticle", nParticles_);
+    minUpdatesBeforeResample_ = pt.get("config.filter.resampling.minTimesteps", 1);
     
-    nSegments_ = cfg_.lookup("Trajectory.nSegments");
-    max_dx_ = cfg_.lookup("Trajectory.max_dx_per_sec");
-    max_dy_ = cfg_.lookup("Trajectory.max_dy_per_sec");
-    max_dz_ = cfg_.lookup("Trajectory.max_dz_per_sec");
-    min_dx_ = cfg_.lookup("Trajectory.min_dx_per_sec");
-    vardx_ = cfg_.lookup("Trajectory.vardx");
-    vardy_ = cfg_.lookup("Trajectory.vardy");
-    vardz_ = cfg_.lookup("Trajectory.vardz");
-
-    nLandmarks_ = cfg_.lookup("Landmarks.nLandmarks");
-    varlmx_ = cfg_.lookup("Landmarks.varlmx");
-    varlmy_ = cfg_.lookup("Landmarks.varlmy");
-
-    rangeLimitMax_ = cfg_.lookup("Measurement.rangeLimitMax");
-    rangeLimitMin_ = cfg_.lookup("Measurement.rangeLimitMin");
-    rangeLimitBuffer_ = cfg_.lookup("Measurement.rangeLimitBuffer");
-    Pd_ = cfg_.lookup("Measurement.probDetection");
-    c_ = cfg_.lookup("Measurement.clutterIntensity");
-    varzr_ = cfg_.lookup("Measurement.varzr");
-    varzb_ = cfg_.lookup("Measurement.varzb");
-
-    nParticles_ = cfg_.lookup("Filter.nParticles");
-    pNoiseInflation_ = cfg_.lookup("Filter.processNoiseInflationFactor");
-    zNoiseInflation_ = cfg_.lookup("Filter.measurementNoiseInflationFactor");
-    innovationRangeThreshold_ = cfg_.lookup("Filter.innovationRangeThreshold");
-    innovationBearingThreshold_ = cfg_.lookup("Filter.innovationBearingThreshold");
-    effNParticleThreshold_ = cfg_.lookup("Filter.effectiveNumberOfParticlesThreshold");
-    minUpdatesBeforeResample_ = cfg_.lookup("Filter.minUpdatesBeforeResample");
-    minLogMeasurementLikelihood_ = cfg_.lookup("Filter.minLogMeasurementLikelihood");
-    maxNDataAssocHypotheses_ = cfg_.lookup("Filter.maxNDataAssocHypotheses");
-    maxDataAssocLogLikelihoodDiff_ = cfg_.lookup("Filter.maxDataAssocLogLikelihoodDiff");
-    landmarkExistencePruningThreshold_ = cfg_.lookup("Filter.landmarkExistencePruningThreshold");
-    reportTimingInfo_ = cfg_.lookup("Filter.reportTimingInfo");
-
-    logToFile_ = cfg_.lookup("Computation.logToFile");
-    logDirPrefix_ = cfg_.lookup("Computation.logDirPrefix");
+    landmarkExistencePruningThreshold_ = pt.get("config.filter.prune.threshold", -5.0);
 
     return true;   
   }
@@ -124,7 +141,6 @@ public:
   /** Generate a random trajectory in 2d space */
   void generateTrajectory(int randSeed = 0){
 
-    printf("Generating trajectory with random seed = %d\n", randSeed);
     srand48( randSeed );
 
     TimeStamp t;
@@ -133,9 +149,9 @@ public:
     Q << vardx_, 0, 0, 0, vardy_, 0, 0, 0, vardz_;
     Q = dT_ * Q * dT_;
     MotionModel_Odometry2d motionModel(Q);
-    MotionModel_Odometry2d::TInput input_k(0, 0, 0, 0, 0, 0, t);
-    MotionModel_Odometry2d::TState pose_k(0, 0, 0, 0, 0, 0, t);
-    MotionModel_Odometry2d::TState pose_km(0, 0, 0, 0, 0, 0, t);
+    MotionModel_Odometry2d::TInput input_k(t);
+    MotionModel_Odometry2d::TState pose_k(t);
+    MotionModel_Odometry2d::TState pose_km(t);
     groundtruth_displacement_.reserve( kMax_ );
     groundtruth_pose_.reserve( kMax_ );
     groundtruth_displacement_.push_back(input_k);
@@ -146,11 +162,12 @@ public:
       t += dTimeStamp_;
 
       if( k <= 50 ){
-	double dx = 0;
-	double dy = 0;
-	double dz = 0;
-	input_k = MotionModel_Odometry2d::TInput(dx, dy, dz, 
-						0, 0, 0, k);
+	// No motion
+	MotionModel_Odometry2d::TInput::Vec d;
+	MotionModel_Odometry2d::TInput::Vec dCovDiag;
+	d << 0, 0, 0;
+	dCovDiag << 0, 0, 0;
+	input_k = MotionModel_Odometry2d::TInput(d, dCovDiag.asDiagonal(), k);
       }else if( k >= kMax_ / nSegments_ * seg ){
 	seg++;
 	double dx = drand48() * max_dx_ * dT_;
@@ -158,9 +175,12 @@ public:
 	  dx = drand48() * max_dx_ * dT_;
 	}
 	double dy = (drand48() * max_dy_ * 2 - max_dy_) * dT_;
-	double dz = (drand48() * max_dz_ * 2 - max_dz_) * dT_; 
-	input_k = MotionModel_Odometry2d::TInput(dx, dy, dz, 
-						Q(0,0), Q(1,1), Q(2,2), t);  
+	double dz = (drand48() * max_dz_ * 2 - max_dz_) * dT_;
+	MotionModel_Odometry2d::TInput::Vec d;
+	MotionModel_Odometry2d::TInput::Vec dCovDiag;
+	d << dx, dy, dz;
+	dCovDiag << Q(0,0), Q(1,1), Q(2,2);
+	input_k = MotionModel_Odometry2d::TInput(d, dCovDiag.asDiagonal(), t);  
       }
 
       groundtruth_displacement_.push_back(input_k);
@@ -341,17 +361,18 @@ public:
   /** Data Logging */
   void exportSimData(){
 
-    if(!logToFile_)
+    if(logResultsToFile_ || logTimingToFile_ ){
+      boost::filesystem::path dir(logDirPrefix_);
+      boost::filesystem::create_directories(dir);
+      boost::filesystem::path cfgFilePathSrc( cfgFileName_ );
+      std::string cfgFileDst( logDirPrefix_ );
+      cfgFileDst += "simSettings.xml";
+      boost::filesystem::path cfgFilePathDst( cfgFileDst.data() );
+      boost::filesystem::copy_file( cfgFilePathSrc, cfgFilePathDst, boost::filesystem::copy_option::overwrite_if_exists);
+    }
+      
+    if(!logResultsToFile_)
       return;
-
-    boost::filesystem::path dir(logDirPrefix_);
-    boost::filesystem::create_directory(dir);
-
-    boost::filesystem::path cfgFilePathSrc( cfgFileName_ );
-    std::string cfgFileDst( logDirPrefix_ );
-    cfgFileDst += "simSettings.cfg";
-    boost::filesystem::path cfgFilePathDst( cfgFileDst.data() );
-    boost::filesystem::copy_file( cfgFilePathSrc, cfgFilePathDst, boost::filesystem::copy_option::overwrite_if_exists);
 
     TimeStamp t;
 
@@ -414,7 +435,7 @@ public:
   }
 
   /** FastSLAM Setup */
-  void setupRBPHDFilter(){
+  void setupFastSLAMFilter(){
     
     pFilter_ = new FastSLAM<MotionModel_Odometry2d,
 			    StaticProcessModel<Landmark2d>,
@@ -458,7 +479,6 @@ public:
     pFilter_->config.maxDataAssocLogLikelihoodDiff_ = maxDataAssocLogLikelihoodDiff_;
     pFilter_->config.mapExistencePruneThreshold_ = landmarkExistencePruningThreshold_;
     pFilter_->config.landmarkExistencePrior_ = 0.5;
-    pFilter_->config.reportTimingInfo_ = reportTimingInfo_;
   }
 
   /** Run the simulator */
@@ -466,16 +486,28 @@ public:
     
     printf("Running simulation\n\n");
 
+#ifdef _PERFTOOLS_CPU
+    std::string perfCPU_file = logDirPrefix_ + "fastslam2dSim_cpu.prof";
+    ProfilerStart(perfCPU_file.data());
+#endif
+#ifdef _PERFTOOLS_HEAP
+    std::string perfHEAP_file = logDirPrefix_ + "fastslam2dSim_heap.prof";
+    HeapProfilerStart(perfHEAP_file.data());
+#endif
+
     //////// Initialization at first timestep //////////
 
+    if(!logResultsToFile_){
+      std::cout << "Note: results are NOT being logged to file (see config xml file)\n";
+    }
     FILE* pParticlePoseFile;
-    if(logToFile_){
+    if(logResultsToFile_){
       std::string filenameParticlePoseFile( logDirPrefix_ );
       filenameParticlePoseFile += "particlePose.dat";
       pParticlePoseFile = fopen(filenameParticlePoseFile.data(), "w");
     }
     FILE* pLandmarkEstFile;
-    if(logToFile_){
+    if(logResultsToFile_){
       std::string filenameLandmarkEstFile( logDirPrefix_ );
       filenameLandmarkEstFile += "landmarkEst.dat";
       pLandmarkEstFile = fopen(filenameLandmarkEstFile.data(), "w");
@@ -483,18 +515,14 @@ public:
     MotionModel_Odometry2d::TState x_i;
     int zIdx = 0;
 
-    if(logToFile_){
+    if(logResultsToFile_){
       for(int i = 0; i < pFilter_->getParticleCount(); i++){
-	pFilter_->getParticleSet()->at(i)->getPose(x_i);
+	x_i = *(pFilter_->getParticleSet()->at(i));
 	fprintf( pParticlePoseFile, "%f   %d   %f   %f   %f   1.0\n", 0.0, i, x_i.get(0), x_i.get(1), x_i.get(2));
       }  
     }
 
-    boost::timer::auto_cpu_timer *stepTimer = NULL;
-    boost::timer::auto_cpu_timer *processTimer = NULL;
-    if(reportTimingInfo_){
-      processTimer = new boost::timer::auto_cpu_timer(6, "Total run time: %ws\n");
-    }
+
     /////////// Run simulator from k = 1 to kMax_ /////////
 
     TimeStamp time;
@@ -503,13 +531,35 @@ public:
 
       time += dTimeStamp_;
 
-      if(reportTimingInfo_){
-	stepTimer = new boost::timer::auto_cpu_timer(6, "Step time: %ws\n");
+            if( k % 100 == 0 || k == kMax_ - 1){
+	float progressPercent = float(k+1) / float(kMax_);
+	int progressBarW = 50;
+	struct winsize ws;
+	if(ioctl(1, TIOCGWINSZ, &ws) >= 0)
+	  progressBarW = ws.ws_col - 30;
+	int progressPos = progressPercent * progressBarW;
+	if(progressBarW >= 50){
+	  std::cout << "["; 
+	  for(int i = 0; i < progressBarW; i++){
+	    if(i < progressPos)
+	      std::cout << "=";
+	    else if(i == progressPos)
+	      std::cout << ">";
+	    else
+	      std::cout << " ";
+	  }
+	  std::cout << "] ";
+	}
+	std::cout << "k = " << k << " (" << int(progressPercent * 100.0) << " %)\r"; 
+	std::cout.flush();
       }
-      
-      if( k % 1 == 0)
-	printf("k = %d\n", k);
- 
+      if(k == kMax_ - 1)
+	std::cout << std::endl << std::endl;
+
+#ifdef _PERFTOOLS_HEAP
+      if( k % 20 == 0)
+	HeapProfilerDump("Timestep interval dump");
+#endif
       
       ////////// Prediction Step //////////
 
@@ -547,46 +597,131 @@ public:
       pFilter_->update(Z);
 
       // Log particle poses
-      if(logToFile_){
+      int i_w_max = 0;
+      double w_max = 0;
+      if(logResultsToFile_){
 	for(int i = 0; i < pFilter_->getParticleCount(); i++){
-	  pFilter_->getParticleSet()->at(i)->getPose(x_i);
+	  x_i = *(pFilter_->getParticleSet()->at(i));
 	  double w = pFilter_->getParticleSet()->at(i)->getWeight();
+	  if(w > w_max){
+	    i_w_max = i;
+	    w_max = w;
+	  }
 	  fprintf( pParticlePoseFile, "%f   %d   %f   %f   %f   %f\n", time.getTimeAsDouble(), i, x_i.get(0), x_i.get(1), x_i.get(2), w);
 	}
 	fprintf( pParticlePoseFile, "\n");
       }
 
       // Log landmark estimates
-      if(logToFile_){
-	for(int i = 0; i < pFilter_->getParticleCount(); i++){
-	  int mapSize = pFilter_->getGMSize(i);
-	  for( int m = 0; m < mapSize; m++ ){
-	    MeasurementModel_RngBrg::TLandmark::Vec u;
-	    MeasurementModel_RngBrg::TLandmark::Mat S;
-	    double w;
-	    pFilter_->getLandmark(i, m, u, S, w);
+      if(logResultsToFile_){
+
+	int mapSize = pFilter_->getGMSize(i_w_max);
+	for( int m = 0; m < mapSize; m++ ){
+	  MeasurementModel_RngBrg::TLandmark::Vec u;
+	  MeasurementModel_RngBrg::TLandmark::Mat S;
+	  double w;
+	  pFilter_->getLandmark(i_w_max, m, u, S, w);
 	    
-	    fprintf( pLandmarkEstFile, "%f   %d   ", time.getTimeAsDouble(), i);
-	    fprintf( pLandmarkEstFile, "%f   %f      ", u(0), u(1));
-	    fprintf( pLandmarkEstFile, "%f   %f   %f", S(0,0), S(0,1), S(1,1));
-	    fprintf( pLandmarkEstFile, "   %f\n", 1 - 1/(1 + exp(w)) );
-	  }
+	  fprintf( pLandmarkEstFile, "%f   %d   ", time.getTimeAsDouble(), i_w_max);
+	  fprintf( pLandmarkEstFile, "%f   %f      ", u(0), u(1));
+	  fprintf( pLandmarkEstFile, "%f   %f   %f", S(0,0), S(0,1), S(1,1));
+	  fprintf( pLandmarkEstFile, "   %f\n", 1 - 1/(1 + exp(w)) );
+	  
 	}
       }
-
-      if(reportTimingInfo_){
-	delete stepTimer;
-	stepTimer = NULL;
-      }
-
     }
+        
+#ifdef _PERFTOOLS_HEAP
+    HeapProfilerStop();
+#endif
+#ifdef _PERFTOOLS_CPU
+    ProfilerStop();
+#endif
 
-    if(reportTimingInfo_){
-      delete processTimer;
-      processTimer = NULL;
+    
+
+    std::cout << "Elapsed Timing Information [nsec]\n";
+    std::cout << std::setw(15) << std::left << "Prediction" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->predict_wall
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->predict_cpu << std::endl;
+    std::cout << std::setw(15) << std::left << "Map Update" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->mapUpdate_wall
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->mapUpdate_cpu << std::endl;
+    std::cout << std::setw(15) << std::left << "Data Assoc" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->dataAssoc_wall
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->dataAssoc_cpu << std::endl;
+    std::cout << std::setw(15) << std::left << "Map Update (KF)" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->mapUpdate_KF_wall
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->mapUpdate_KF_cpu << std::endl;
+    std::cout << std::setw(15) << std::left << "Weighting" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->weighting_wall
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->weighting_cpu << std::endl;
+    std::cout << std::setw(15) << std::left << "Map Manage" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->mapManage_wall
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->mapManage_cpu << std::endl;
+    std::cout << std::setw(15) << std::left << "Resampling" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->particleResample_wall
+	      << std::setw(6) << std::left << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->particleResample_cpu << std::endl;
+    std::cout << std::setw(15) << std::left << "Total" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15)
+	      << pFilter_->getTimingInfo()->predict_wall +
+                 pFilter_->getTimingInfo()->dataAssoc_wall +
+                 pFilter_->getTimingInfo()->mapUpdate_KF_wall +
+                 pFilter_->getTimingInfo()->weighting_wall +
+                 pFilter_->getTimingInfo()->mapManage_wall +
+                 pFilter_->getTimingInfo()->particleResample_wall 
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15)
+	      << pFilter_->getTimingInfo()->predict_cpu +
+                 pFilter_->getTimingInfo()->dataAssoc_cpu +
+                 pFilter_->getTimingInfo()->mapUpdate_KF_cpu +
+                 pFilter_->getTimingInfo()->weighting_cpu +
+                 pFilter_->getTimingInfo()->mapManage_cpu +
+                 pFilter_->getTimingInfo()->particleResample_cpu << std::endl;
+
+    if(logTimingToFile_){
+      std::ofstream timingFile( (logDirPrefix_ + "timing.dat").data() );
+      timingFile << "Elapsed Timing Information [nsec]\n";
+      timingFile << std::setw(15) << std::left << "Prediction" << std::setw(15)
+		 << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->predict_wall
+		 << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->predict_cpu << std::endl;
+      timingFile << std::setw(15) << std::left << "Map Update" << std::setw(15)
+		 << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->mapUpdate_wall
+		 << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->mapUpdate_cpu << std::endl;
+      timingFile << std::setw(15) << std::left << "Data Assoc" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->dataAssoc_wall
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->dataAssoc_cpu << std::endl;
+      timingFile << std::setw(15) << std::left << "Map Update (KF)" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->mapUpdate_KF_wall
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->mapUpdate_KF_cpu << std::endl;
+      timingFile << std::setw(15) << std::left << "Weighting" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->weighting_wall
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->weighting_cpu << std::endl;
+      timingFile << std::setw(15) << std::left << "Map Manage" << std::setw(15)
+	      << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->mapManage_wall
+	      << std::setw(6) << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->mapManage_cpu << std::endl;
+      timingFile << std::setw(15) << std::left << "Resampling" << std::setw(15)
+		 << std::setw(6) << std::right << "wall:" << std::setw(15) << pFilter_->getTimingInfo()->particleResample_wall
+		 << std::setw(6) << std::left << std::right << "cpu:" << std::setw(15) << pFilter_->getTimingInfo()->particleResample_cpu << std::endl;
+      timingFile << std::setw(15) << std::left << "Total" << std::setw(15)
+		 << std::setw(6) << std::right << "wall:" << std::setw(15)
+		 << pFilter_->getTimingInfo()->predict_wall +
+                 pFilter_->getTimingInfo()->dataAssoc_wall +
+                 pFilter_->getTimingInfo()->mapUpdate_KF_wall +
+                 pFilter_->getTimingInfo()->weighting_wall +
+                 pFilter_->getTimingInfo()->mapManage_wall +
+                 pFilter_->getTimingInfo()->particleResample_wall   
+		 << std::setw(6) << std::right << "cpu:" << std::setw(15)
+		 << pFilter_->getTimingInfo()->predict_cpu +
+                 pFilter_->getTimingInfo()->dataAssoc_cpu +
+                 pFilter_->getTimingInfo()->mapUpdate_KF_cpu +
+                 pFilter_->getTimingInfo()->weighting_cpu +
+                 pFilter_->getTimingInfo()->mapManage_cpu +
+                 pFilter_->getTimingInfo()->particleResample_cpu << std::endl;
+      
+      timingFile.close();
     }
-
-    if(logToFile_){
+    
+    if(logResultsToFile_){
       fclose(pParticlePoseFile);
       fclose(pLandmarkEstFile);
     }
@@ -594,7 +729,6 @@ public:
 
 private:
 
-  libconfig::Config cfg_;
   const char* cfgFileName_;
 
   int kMax_; /**< number of timesteps */
@@ -649,10 +783,10 @@ private:
   int maxNDataAssocHypotheses_;
   double maxDataAssocLogLikelihoodDiff_;
   double landmarkExistencePruningThreshold_;
-  bool reportTimingInfo_;
   
-  bool logToFile_;
-  const char *logDirPrefix_;
+  bool logResultsToFile_;
+  bool logTimingToFile_;
+  std::string logDirPrefix_;
 };
 
 
@@ -660,30 +794,59 @@ private:
 
 int main(int argc, char* argv[]){   
 
-  int initRandSeed = 0;
-  const char* logFileName = "cfg/fastslam2dSim.cfg";
-  if( argc >= 2 ){
-    initRandSeed = boost::lexical_cast<int>(argv[1]);
-  }
-  if( argc >= 3 ){
-    logFileName = argv[2];
+  Simulator_FastSLAM_2d sim;
+
+  int seed = time(NULL);
+  srand(seed);
+  int trajNum = rand();
+  std::string cfgFileName;
+  boost::program_options::options_description desc("Options");
+  desc.add_options()
+    ("help,h", "produce this help message")
+    ("cfg,c", boost::program_options::value<std::string>(&cfgFileName)->default_value("cfg/fastslam2dSim.xml"), "configuration xml file")
+    ("trajectory,t", boost::program_options::value<int>(&trajNum), "trajectory number (default: a random integer)")
+    ("seed,s", boost::program_options::value<int>(&seed), "random seed for running the simulation (default: based on current system time)");
+  boost::program_options::variables_map vm;
+  boost::program_options::store( boost::program_options::parse_command_line(argc, argv, desc), vm);
+  boost::program_options::notify(vm);
+
+  if( vm.count("help") ){
+    std::cout << desc << "\n";
+    return 1;
   }
 
-  Simulator2d sim;
-  if( !sim.readConfigFile( logFileName ) ){
+  if( vm.count("cfg") ){
+    cfgFileName = vm["cfg"].as<std::string>();
+  }
+  std::cout << "Configuration file: " << cfgFileName << std::endl;
+  if( !sim.readConfigFile( cfgFileName.data() ) ){
     return -1;
   }
-  sim.generateTrajectory( initRandSeed );
+  
+  if( vm.count("trajectory") ){
+    trajNum = vm["trajectory"].as<int>();
+  }
+  std::cout << "Trajectory: " << trajNum << std::endl;
+  sim.generateTrajectory( trajNum );  
+  
   sim.generateLandmarks();
-
   sim.generateOdometry();
   sim.generateMeasurements();
   sim.exportSimData();
-  sim.setupRBPHDFilter();
+  sim.setupFastSLAMFilter();
 
-  srand48( time(NULL) );
+  if( vm.count("seed") ){
+    seed = vm["seed"].as<int>();
+    std::cout << "Simulation random seed manually set to: " << seed << std::endl;
+  }
+  srand48( seed );
+
+  // boost::timer::auto_cpu_timer *timer = new boost::timer::auto_cpu_timer(6, "Simulation run time: %ws\n");
 
   sim.run();
+
+  // std::cout << "mem use: " << MemProfile::getCurrentRSS() << "(" << MemProfile::getPeakRSS() << ")\n";
+  //delete timer;
 
   return 0;
 

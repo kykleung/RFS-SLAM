@@ -31,123 +31,112 @@
 #ifndef PARTICLE_HPP
 #define PARTICLE_HPP
 
+#include <boost/shared_ptr.hpp>
 #include <cstddef>
-#include "RandomVec.hpp"
+#include "Trajectory.hpp"
 
 namespace rfs{
 
 /** 
  *  \class Particle
- *  \brief A class for a particle for the particle filter
+ *  \brief A class for a particle for the particle filter.
  *  \tparam PoseType RandomVec derived class to represent the state of a particle
  *  \tparam DataType Some user-defined class for carrying extra data / information with a particle
  *  \author Keith Leung
  */
 template< class PoseType, class DataType = int>
-class Particle
+class Particle : public Trajectory<PoseType>
 {
 
 public:
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
 
+  typedef boost::shared_ptr< Particle<PoseType, DataType> > Ptr;
   typedef PoseType tPose;
+  typedef boost::shared_ptr<DataType> PtrData;
 
-  /** Default constructor */
+  /** \brief Default constructor */
   Particle();
 
-  /** Constructor 
+  /** \brief Constructor 
    * \param[in] id particle id
    * \param[in] x_k_i particle pose
    * \param[in] w particle weight
    */
   Particle( unsigned int id, PoseType &x_k_i, double w = 0 );
 
-  /** Destructor */
+  /** \brief Destructor */
   ~Particle();
 
-  /**
-   *  Set particle pose
-   *  \param[in] x_k_i pose
+  /** \brief Assignment operator. 
+   *  \param[in] x Pose to copy to the particle 
    */
-  void setPose( PoseType &x_k_i );
+  Particle<PoseType, DataType>& operator= ( PoseType const &x );
 
   /**
-   *  Get particle pose
-   *  \param[out] x_k_i pose
-   */
-  void getPose( PoseType &x_k_i ) const;
-
-  /**
-   *  Get particle pose
+   *  \brief Get particle pose
    *  \return pointer to pose
    */
   const PoseType* getPose() const;
 
   /**
-   *  Set particle importance weight
+   *  \brief Set particle importance weight.
    *  \param[in] w weight
    */
   void setWeight( double w );
 
   /** 
-   *  Get particle importance weight
+   *  \brief Get particle importance weight.
    *  \return particle weight
    */
   double getWeight() const;
 
   /**
-   * Get the particle id
+   * \brief Get the particle id.
    * \return particle id
    */
   unsigned int getId() const;
 
   /**
-   * Get the particle id of the particle which spawned 
-   * the current one after resampling
+   * \brief Get the particle id of the particle which spawned 
+   * the current one after resampling.
    * \return parent particle id
    */
   unsigned int getParentId() const ;
 
   /** 
-   * Set the particle id
+   * \brief Set the particle id.
    * \param[in] id particle id
    */
   void setId( unsigned int id );
 
   /**
-   * Set the id of this particle's parent from resampling
+   * \brief Set the id of this particle's parent from resampling.
    * \param[in] id parent id
    */
   void setParentId( unsigned int id );
 
   /** 
-   * Copy the state from this particle to another particle
-   * \param[out] p particle to which data is copied to
+   * \brief Copy this particle, and perform a deep copy of data_.
+   * \return shared pointer to copied particle
    */
-  void copyStateTo( Particle<PoseType, DataType>* p);
+  Ptr copy();
 
   /** 
-   * Copy the extra data from this particle to another particle
-   * \warning DataType may need a non-default copy constructor
-   * \param[out] p particle to which data is copied to
-   */
-  void copyDataTo( Particle<PoseType, DataType>* p);
-
-  /** 
-   * Get the extra data pointer 
+   * \brief Get the extra data pointer.
    * \return pointer to the data
    */
-  DataType* getData();
+  PtrData getData() const;
 
   /**
-   * Set the extra data pointer
+   * \brief Set the extra data pointer.
    * \param[in] dataPtr pointer to the data
    */
-  void setData(DataType* dataPtr);
+  void setData(PtrData const &dataPtr);
 
   /**
-   * Delete the extra data
+   * \brief Reset the data pointer to null, and perform delete if necessary.
    */
   void deleteData();
 
@@ -155,30 +144,31 @@ protected:
 
   unsigned int id_; /**< particle id number */
   unsigned int idParent_; /** id of particle which this one is spawned from */
-  PoseType x_k_i_; /**< robot pose at timestep k **/
   double w_; /**< Particle weight */
-  DataType* data_; /**< Pointer to extra data */
+  PtrData data_; /**< Pointer to extra data */
 
 };
 
 // Implementation
 
 template< class PoseType, class DataType >
-Particle<PoseType, DataType>::Particle(){
-  id_ = 0;
-  idParent_ = id_;
-  x_k_i_ = PoseType();
-  w_ = 0;
-  data_ = NULL;
-}
+Particle<PoseType, DataType>::Particle() : id_(0),
+					   idParent_(0),
+					   w_(0)
+{}
 
 template< class PoseType, class DataType >
-Particle<PoseType, DataType>::Particle( unsigned int id, PoseType &x_k_i, double w ){
-  id_ = id;
-  idParent_ = id_;
-  x_k_i_ = x_k_i;
-  w_ = w;
-  data_ = NULL;
+Particle<PoseType, DataType>::Particle( unsigned int id, PoseType &x_k_i, double w ) : Trajectory<PoseType>(x_k_i),
+										       id_(id),
+										       idParent_(id),
+										       w_(w)
+{}
+
+template< class PoseType, class DataType >
+Particle<PoseType, DataType>& Particle<PoseType, DataType>::operator= ( PoseType const &x ){
+  
+  PoseType::operator= (x);
+  return *this;
 }
 
 template< class PoseType, class DataType >
@@ -187,27 +177,20 @@ Particle<PoseType, DataType>::~Particle(){
 }
 
 template< class PoseType, class DataType >
-void Particle<PoseType, DataType>::setPose( PoseType &x_k_i ){ 
-  x_k_i_ = x_k_i;
-}
-
-template< class PoseType, class DataType >
-void Particle<PoseType, DataType>::getPose( PoseType &x_k_i ) const{
-  x_k_i = x_k_i_;
-}
-
-template< class PoseType, class DataType >
 const PoseType* Particle<PoseType, DataType>::getPose() const{
-  return &x_k_i_;
+  
+  return this;
 }
 
 template< class PoseType, class DataType >
 void Particle<PoseType, DataType>::setWeight( double w ){ 
+  
   w_ = w;
 }
 
 template< class PoseType, class DataType >
 double Particle<PoseType, DataType>::getWeight() const{ 
+  
   return w_; 
 }
 
@@ -232,33 +215,29 @@ void Particle<PoseType, DataType>::setParentId( unsigned int id ){
 }
 
 template< class PoseType, class DataType >
-void Particle<PoseType, DataType>::copyStateTo(Particle<PoseType, DataType>* p){
-  p->x_k_i_ = x_k_i_;
+typename Particle<PoseType, DataType>::Ptr Particle<PoseType, DataType>::copy(){
+
+  Ptr c(new Particle<PoseType, DataType>(*this) );
+  c->data_.reset(new DataType( *data_ ) );
+  return c;
 }
 
 template< class PoseType, class DataType >
-void Particle<PoseType, DataType>::copyDataTo(Particle<PoseType, DataType>* p){
-  if( data_ != NULL )
-    p->data_ = new DataType( *data_ );
-}
+typename Particle<PoseType, DataType>::PtrData Particle<PoseType, DataType>::getData() const{
 
-
-template< class PoseType, class DataType >
-DataType* Particle<PoseType, DataType>::getData(){
   return data_;
 }
 
 template< class PoseType, class DataType >
-void Particle<PoseType, DataType>::setData(DataType* dataPtr){
+void Particle<PoseType, DataType>::setData(PtrData const &dataPtr){
+
   data_ = dataPtr;
 }
 
 template< class PoseType, class DataType >
 void Particle<PoseType, DataType>::deleteData(){
-  if( data_ != NULL ){
-    delete data_;
-    data_ = NULL;
-  }
+  
+  data_.reset();
 }
   
 }  

@@ -42,7 +42,7 @@ MeasurementModel_Rng1D::MeasurementModel_Rng1D(){
   config.rangeLimBuffer_ = 0.25;
 }
 
-MeasurementModel_Rng1D::MeasurementModel_Rng1D(Eigen::Matrix<double, 1, 1> &Sr){
+MeasurementModel_Rng1D::MeasurementModel_Rng1D(::Eigen::Matrix<double, 1, 1> &Sr){
   setNoise(Sr);
   config.probabilityOfDetection_ = 0.95;
   config.uniformClutterIntensity_ = 0.1;
@@ -65,27 +65,34 @@ MeasurementModel_Rng1D::MeasurementModel_Rng1D(double Sr){
 MeasurementModel_Rng1D::~MeasurementModel_Rng1D(){}
 
 bool MeasurementModel_Rng1D::measure(const Pose1d &pose, 
-				 const Landmark1d &landmark, 
-				 Measurement1d &measurement, 
-				 Eigen::Matrix<double, 1, 1> *jacobian){
+				     const Landmark1d &landmark, 
+				     Measurement1d &measurement, 
+				     Eigen::Matrix<double, 1, 1> *jacobian_wrt_lmk,
+				     Eigen::Matrix<double, 1, 1> *jacobian_wrt_pose){
 
   Pose1d::Vec robotPos;
+  Pose1d::Mat robotUncertainty;
   Landmark1d::Vec lmkPos;
   Landmark1d::Mat lmkPosUncertainty;
   Measurement1d::Vec z;
-  Eigen::Matrix<double, 1, 1> H;
+  Eigen::Matrix<double, 1, 1> H_lmk, H_robot;
   Eigen::Matrix<double, 1, 1> var;
 
-  pose.get(robotPos);
+  pose.get(robotPos, robotUncertainty);
   landmark.get(lmkPos, lmkPosUncertainty);
   z = lmkPos - robotPos;
-  H << 1;
-  var = H * lmkPosUncertainty * H.transpose() + R_;
+  H_lmk << 1;
+  H_robot << -1;
+  // var = H_lmk * lmkPosUncertainty * H_lmk.transpose() + H_robot * robotUncertainty * H_robot.transpose() + R_;
+  var = lmkPosUncertainty + robotUncertainty + R_;
 
   measurement.set(z, var);
 
-  if(jacobian != NULL)
-    *jacobian = H;
+  if(jacobian_wrt_lmk != NULL)
+    *jacobian_wrt_lmk = H_lmk;
+
+  if(jacobian_wrt_pose != NULL)
+    *jacobian_wrt_pose = H_robot;
 
   if(fabs(z(0)) > config.rangeLimMax_ || fabs(z(0)) < config.rangeLimMin_)
     return false;

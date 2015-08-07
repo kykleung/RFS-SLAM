@@ -43,7 +43,7 @@ MeasurementModel_RngBrg::MeasurementModel_RngBrg(){
 }
 
 
-MeasurementModel_RngBrg::MeasurementModel_RngBrg(Eigen::Matrix2d &covZ){
+MeasurementModel_RngBrg::MeasurementModel_RngBrg(::Eigen::Matrix2d &covZ){
 
   setNoise(covZ);
   config.probabilityOfDetection_ = 0.95;
@@ -68,20 +68,23 @@ MeasurementModel_RngBrg::MeasurementModel_RngBrg(double Sr, double Sb){
 MeasurementModel_RngBrg::~MeasurementModel_RngBrg(){}
 
 bool MeasurementModel_RngBrg::measure(const Pose2d &pose, 
-				const Landmark2d &landmark, 
-				Measurement2d &measurement, 
-				Eigen::Matrix2d *jacobian){
-
+				      const Landmark2d &landmark, 
+				      Measurement2d &measurement,
+				      Eigen::Matrix2d *jacobian_wrt_lmk,
+				      Eigen::Matrix<double, 2, 3> *jacobian_wrt_pose){
+  
   Eigen::Vector3d robotPose;
   Eigen::Vector2d mean, landmarkState;
-  Eigen::Matrix2d H, landmarkUncertainty, cov;
-  double range, bearing;
+  Eigen::Matrix2d H_lmk, landmarkUncertainty, cov;
+  Eigen::Matrix<double, 2, 3> H_robot;
+  Eigen::Matrix3d robotUncertainty;
+  double range, range2, bearing;
 
-  pose.get(robotPose);
+  pose.get(robotPose, robotUncertainty);
   landmark.get(landmarkState,landmarkUncertainty);
 
-  range = sqrt(  pow(landmarkState(0) - robotPose(0), 2)
-		+pow(landmarkState(1) - robotPose(1), 2) );
+  range2 = pow(landmarkState(0) - robotPose(0), 2) + pow(landmarkState(1) - robotPose(1), 2) ;
+  range = sqrt(range2);
 
   bearing = atan2( landmarkState(1) - robotPose(1) , landmarkState(0) - robotPose(0) ) - robotPose(2);
 
@@ -90,15 +93,20 @@ bool MeasurementModel_RngBrg::measure(const Pose2d &pose,
 
   mean << range, bearing ;
 
-  H <<  (landmarkState(0)-robotPose(0))/mean(0)          , (landmarkState(1)-robotPose(1))/mean(0) ,
-        -(landmarkState(1)-robotPose(1))/(pow(mean(0),2)), (landmarkState(0)-robotPose(0))/pow(mean(0),2) ;
-  
-  cov = H * landmarkUncertainty * H.transpose() + R_;
+  H_lmk <<  (landmarkState(0)-robotPose(0))/ range   , (landmarkState(1)-robotPose(1))/ range ,
+           -(landmarkState(1)-robotPose(1))/ range2 , (landmarkState(0)-robotPose(0)) / range2 ;
+
+  H_robot << -(landmarkState(0)-robotPose(0))/ range   , -(landmarkState(1)-robotPose(1))/ range , 0,
+              (landmarkState(1)-robotPose(1))/ range2 ,  -(landmarkState(0)-robotPose(0)) / range2, -1;
+
+  cov = H_lmk * landmarkUncertainty * H_lmk.transpose() + H_robot * robotUncertainty * H_robot.transpose() + R_;
   measurement.set(mean, cov);
 
-  
-  if(jacobian != NULL)
-    *jacobian = H;
+  if(jacobian_wrt_lmk != NULL)
+    *jacobian_wrt_lmk = H_lmk;
+
+  if(jacobian_wrt_pose != NULL)
+    *jacobian_wrt_pose = H_robot;
 
   if(range > config.rangeLimMax_ || range < config.rangeLimMin_)
     return false;

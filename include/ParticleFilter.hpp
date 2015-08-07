@@ -55,7 +55,9 @@ public:
   typedef typename ProcessModel::TState TPose;
   typedef typename ProcessModel::TInput TInput;
   typedef typename MeasurementModel::TMeasurement TMeasure;
-  typedef Particle<TPose, ParticleExtraData>* pParticle;
+  typedef Trajectory<TPose> TTrajectory;
+  typedef Particle<TPose, ParticleExtraData> TParticle;
+  typedef boost::shared_ptr<TParticle> pParticle;
   typedef std::vector<pParticle> TParticleSet;
 
 
@@ -96,7 +98,7 @@ public:
    * \param[in] weight if non-negative, this weight is assigned to the origin and newly copied particles
    * \return the number of particles currently used by the filter after adding
    */
-  unsigned int copyParticle(int idx, int n, double weight = -1);
+  unsigned int copyParticle(unsigned int idx, unsigned int n, double weight = -1);
 
   /** 
    * Get the process model pointer
@@ -123,16 +125,24 @@ public:
    * \param[in] dT time-step of input 
    * \param[in] useModelNoise use the additive noise for the process model
    * \param[in] useInputNoise use the noise fn the input
+   * \param[in] maintainTrajectory keep trajectory information
    */
   void propagate( TInput &input, TimeStamp const &dT, 
 		  bool useModelNoise = true,
-		  bool useInputNoise = false);
+		  bool useInputNoise = false,
+		  bool maintainTrajectory = false);
 
   /**
-   * Calculate and update importance weights for all particles;
+   * Calculate and update importance weights for one particle.
    * Derived class needs to implement this method
+   * \param[in] idx index number for particle to perform importance weighting
    */
-  virtual void importanceWeighting();
+  virtual void importanceWeighting(const uint idx) = 0;
+
+  /**
+   * Calculate and update importance weights for all particles.
+   */
+  void importanceWeighting();
 
   /** 
    * Get the number of particles
@@ -144,7 +154,14 @@ public:
    * Get the pointer to the particle container
    * \return a pointer
    */
-  TParticleSet* getParticleSet(){return &particleSet_;}
+  TParticleSet* getParticleSet();
+
+  /**
+   * Get particle pose
+   * \param[in] i index of particle
+   * \return pointer to particle. NULL if index i is invalid
+   */
+  TParticle* getParticle(uint const i);
 
   /** 
    * Set the effective particle count below which we initiate resampling
@@ -241,7 +258,7 @@ addParticles(int n, TPose* initState, double initWeight){
   if(initWeight < 0)
     initWeight = 0;
   for( int i = 0 ; i < n ; i++ ){
-    particleSet_.push_back( new Particle<TPose, ParticleExtraData>(i, *initState, initWeight) );
+    particleSet_.push_back( pParticle( new Particle<TPose, ParticleExtraData>(i, *initState, initWeight) ) ); 
   }
 
   if( noInitState ){
@@ -253,23 +270,25 @@ addParticles(int n, TPose* initState, double initWeight){
 
 template< class ProcessModel, class MeasurementModel, class ParticleExtraData>
 unsigned int ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::
-copyParticle(int idx, int n, double weight){
+copyParticle(unsigned int idx, unsigned int n, double weight){
   
   // initiate particles
+  unsigned int nParticles0 = nParticles_;
   nParticles_ += n;
-  particleSet_.reserve(nParticles_);
+  particleSet_.resize(nParticles_);
+  
   if( weight < 0 )
     weight = particleSet_[idx]->getWeight();
   else
     particleSet_[idx]->setWeight(weight);
-  for( int i = 0 ; i < n ; i++ ){			
-    particleSet_.push_back( new Particle<TPose, ParticleExtraData>() );	       
-    int idxNew = particleSet_.size() - 1;
+  for( uint i = 0 ; i < n ; i++ ){
+    unsigned int idxNew = nParticles0 + i;
+
+    particleSet_[idxNew] = particleSet_[idx]->copy(); 
     particleSet_[idxNew]->setWeight( weight );
     particleSet_[idxNew]->setId( idxNew );
     particleSet_[idxNew]->setParentId( particleSet_[idx]->getParentId() );
-    particleSet_[idx]->copyStateTo( particleSet_[idxNew] );
-    particleSet_[idx]->copyDataTo( particleSet_[idxNew] );
+
   } 
   return nParticles_;
 }
@@ -278,9 +297,6 @@ copyParticle(int idx, int n, double weight){
 template< class ProcessModel, class MeasurementModel, class ParticleExtraData>
 ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::~ParticleFilter(){
   
-  for( int i = 0 ; i < nParticles_ ; i++ ){
-    delete particleSet_[i];
-  }
   delete pProcessModel_;
   delete pMeasurementModel_;
 }
@@ -307,17 +323,29 @@ template< class ProcessModel, class MeasurementModel, class ParticleExtraData>
 void ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::propagate( TInput &input, 
 										   TimeStamp const &dT,
 										   bool useModelNoise,
-										   bool useInputNoise){
-  TPose x_km, x_k;
-  for( int i = 0 ; i < nParticles_ ; i++ ){
-    particleSet_[i]->getPose( x_km );
-    pProcessModel_->sample( x_k, x_km, input, dT, useModelNoise, useInputNoise);
-    particleSet_[i]->setPose( x_k );
-  } 
+										   bool useInputNoise,
+										   bool maintainTrajectory ){
+
+    TPose x_km, x_k;
+    for( int i = 0 ; i < nParticles_ ; i++ ){
+      if(maintainTrajectory){
+	pParticle p_km( new Particle<TPose, ParticleExtraData>() );
+	*p_km = *(particleSet_[i]);
+	particleSet_[i]->prev = p_km;
+      }
+      x_km = *(particleSet_[i]);
+      pProcessModel_->sample( x_k, x_km, input, dT, useModelNoise, useInputNoise);
+      *(particleSet_[i]) = x_k;
+    } 
+  
 }
 
 template< class ProcessModel, class MeasurementModel, class ParticleExtraData>
 void ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::importanceWeighting(){
+  
+  for(uint i = 0; i < nParticles_; i++){
+    importanceWeighting(i);
+  }
   return;
 }
 
@@ -338,6 +366,21 @@ void ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::normaliz
 template< class ProcessModel, class MeasurementModel, class ParticleExtraData>
 int ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::getParticleCount(){
   return nParticles_;
+}
+
+template< class ProcessModel, class MeasurementModel, class ParticleExtraData>
+typename ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::TParticleSet* 
+ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::getParticleSet(){
+  return &particleSet_;
+}
+
+template< class ProcessModel, class MeasurementModel, class ParticleExtraData>
+typename ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::TParticle* 
+ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::getParticle(uint const i){
+  if(i < particleSet_.size() ){
+    return particleSet_[i].get();
+  }
+  return NULL;
 }
 
 template< class ProcessModel, class MeasurementModel, class ParticleExtraData>
@@ -428,19 +471,14 @@ bool ParticleFilter<ProcessModel, MeasurementModel, ParticleExtraData>::resample
 	  next_unsampled_idx++;
       }
 
+      particleSet_[next_unsampled_idx] = particleSet_[idx]->copy();
       particleSet_[next_unsampled_idx]->setParentId( particleSet_[idx]->getId() );
-      particleSet_[idx]->copyStateTo( particleSet_[next_unsampled_idx] );
-      particleSet_[next_unsampled_idx]->deleteData();
-      particleSet_[idx]->copyDataTo( particleSet_[next_unsampled_idx] );
 
       next_unsampled_idx++;
     }      
   }
 
   // Delete all particles with idx >= n
-  for( int i = n; i < nParticles_; i++ ){
-    delete particleSet_[i];
-  }
   nParticles_ = n;
   particleSet_.resize(nParticles_);
 

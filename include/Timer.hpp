@@ -28,6 +28,9 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef TIMER_HPP
+#define TIMER_HPP
+
 #include<boost/timer/timer.hpp> 
 
 namespace rfs{
@@ -53,8 +56,8 @@ public:
 
   /** 
    * Get the elapsed time from the timer since the start (as a string)
-   * \output t_wall wall time in nsec
-   * \output t_cpu cpu (system + user) time in nsec
+   * \param[out] t_wall wall time in nsec
+   * \param[out] t_cpu cpu (system + user) time in nsec
    */
   void elapsed(std::string &t_wall, std::string &t_cpu);
 
@@ -72,3 +75,5 @@ private:
 };
 
 }
+
+#endif

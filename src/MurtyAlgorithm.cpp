@@ -35,304 +35,304 @@
 namespace rfs
 {
 
-/// Node class implementation 
+  //------ Node Implementation -----//
 
-Node::Node(int n_children_exp):parent_(NULL), nChildren_(0){
-  if(n_children_exp > 0)
-    children_.resize(n_children_exp);
-}
+  Node::Node():parent_(NULL){}
   
-Node::~Node(){
-  Node* parent = NULL;
-  Node* current = this;
-  do{
-    if(current->nChildren_ > 0){
-      parent = current;
-      current = parent->children_.front();
-      parent->children_.pop_front();
-      parent->nChildren_--;
-    }else if(current != this){
-      delete current;
-      current = parent;
-      parent = current->parent_;
+  Node::~Node(){}
+
+  Node* Node::getParent() const{
+    return parent_;
+  }
+
+  Node* Node::getChildren(uint idx) const{
+    if(idx >= getChildrenCount())
+      return NULL;
+    return children_[idx].get();
+  }
+
+  uint Node::getChildrenCount() const{
+    return children_.size();
+  }
+
+  void Node::addChild(Node* child){
+    child->parent_ = this;
+    children_.push_back( Node::NodePtr(child) );
+  }
+
+  void Node::addChild(Node &child){
+    child.parent_ = this;
+    children_.push_back( Node::NodePtr( new Node(child) ) );
+  }
+
+
+  //----- MurtyNode Implementation -----//
+
+  MurtyNode::MurtyNode(int id, int n_children_exp) : id_(id), 
+						     s_(0){
+
+    if(n_children_exp > 0){
+      children_.reserve( n_children_exp );
     }
-  }while(parent!=NULL || current->nChildren_ > 0);
-}
-
-Node* Node::getParent(){
-  return parent_;
-}
-
-void Node::getChildren(std::vector<Node*> &children){
-  children.clear();
-  for( std::list<Node*>::iterator it = children_.begin(); it != children_.end(); it++ )
-    children.push_back(*it);
-}
-
-int Node::getChildrenCount(){
-  return nChildren_;
-}
-
-void Node::addChild(Node* child){
-  child->parent_ = this;
-  children_.push_front(child);
-  nChildren_++;
-}
-
-/// MurtyNode class implementation
-
-MurtyNode::MurtyNode(int id, int n_children_exp) : Node(n_children_exp),
-						   id_(id),
-						   assignment_(NULL), 
-						   score_(0){}
+  }
 
   
-MurtyNode::~MurtyNode(){
-  if( assignment_ != NULL )
-    delete[] assignment_;
-  assignment_ = NULL;
-}
+  MurtyNode::~MurtyNode(){}
 
-bool MurtyNode::operator< (const MurtyNode& other){
-  if( score_ < other.score_ )
-    return true;
-  return false;
-}
-
-void MurtyNode::setAssignment(int* a, double s){
-  if(assignment_ != NULL)
-    delete[] assignment_;
-  assignment_ = a;
-  score_ = s;
-}
-
-double MurtyNode::getScore(){
-  return score_;
-}
-
-int* MurtyNode::getAssignment(){
-  return assignment_;
-}
-
-int MurtyNode::getPartitionID(){
-  return id_;
-}
-
-Murty::Murty(double** C, unsigned int n, double bigNum) : k_(0), n_(n), bigNumber_(bigNum){
-  C_ = C;
-  C_t_ = new double* [n_];
-  for( int i = 0; i < n_; i++){
-    C_t_[i] = new double [n_];
-  }
-  root_ = new MurtyNode(0, n_);
-  bestScore_ = 0;
-  ideal_nC_ = n;
-  ideal_nR_ = n;
-}
-  
-Murty::~Murty(){
-  for(int i = 0; i < n_; i++)
-    delete[] C_t_[i];
-  delete[] C_t_;
-  delete root_;
-}
-
-void Murty::setIdealBlock(unsigned int nR, unsigned int nC){
-  ideal_nC_ = nC;
-  ideal_nR_ = nR;
-  if(ideal_nC_ > n_)
-    ideal_nC_ = n_;
-  if(ideal_nR_ > n_)
-    ideal_nR_ = n_;
-}
-
-double Murty::getBestScore(){
-  return bestScore_;
-}
-
-int Murty::findNextBest( int* &assignment, double* score){
-    
-  if( k_ == 0 ){
-    int* a = new int[n_];
-    double s; 
-    lam_.run(C_, n_, a, &s);
-    root_->setAssignment(a, s);
-    k_++;
-    pq.push(root_);
-    assignment = a;
-    *score = s;
-    bestScore_ = s;
-    return k_;
+  bool MurtyNode::operator< (const MurtyNode& other){
+    if( s_ < other.s_ )
+      return true;
+    return false;
   }
 
-  // pop the highest-score node
-  if(pq.empty()){
-    //printf("No more solutions available\n");
-    assignment = NULL;
-    *score = 0;
-    return -1;
-  }
-  MurtyNode* parent = pq.top();
-  int parent_partition = parent->getPartitionID();
-  pq.pop();
-
-  int* a_parent = parent->getAssignment();
-  bool Z_used_by_real_m[n_];
-  for(int i = 0; i < n_; i++){
-    Z_used_by_real_m[i] = false;
-  }
-  for(int i = 0; i < ideal_nR_; i++){
-    Z_used_by_real_m[ a_parent[i] ] = true;
+  void MurtyNode::setAssignment(MurtyNode::Assignment &a, double s){
+    a_ = a;
+    s_ = s;
   }
 
-  // partition this node (into n_ - 1 - parent_partition parts) -- make children nodes
-  //printf("\n************************\n");
-  for(int n = parent_partition; n < n_ - 1; n++ ){ 
+  double MurtyNode::getScore() const{
+    return s_;
+  }
 
-    if(n >= ideal_nR_ && a_parent[n] >= ideal_nC_ && Z_used_by_real_m[n - ideal_nR_]){
-      // printf("Skipping partition due to redundant assignment");
-      continue;
+  MurtyNode::Assignment MurtyNode::getAssignment() const{
+    return a_;
+  }
+
+  int MurtyNode::getPartitionID() const{
+    return id_;
+  }
+
+
+
+  Murty::Murty(double** C, unsigned int n, double bigNum) : k_(0), 
+							    n_(n), 
+							    bigNumber_(bigNum),
+							    root_( new MurtyNode(0) ),
+							    realAssign_nR_(n),
+							    realAssign_nC_(n)
+  {
+    C_ = C;
+    C_t_ = new double* [n_];
+    for( int i = 0; i < n_; i++){
+      C_t_[i] = new double [n_];
     }
-      
-    //printf("\nPartition %d\n", n);
-    MurtyNode* p = new MurtyNode(n, n_);
-    parent->addChild(p);
-    int* a = new int[n_];
-    bool freeCol[n_];
+    bestScore_ = 0;
+  }
+  
+  Murty::~Murty(){
+    for(int i = 0; i < n_; i++)
+      delete[] C_t_[i];
+    delete[] C_t_;
+  }
+
+  void Murty::setRealAssignmentBlock(unsigned int nR, unsigned int nC){
+    realAssign_nC_ = nC;
+    realAssign_nR_ = nR;
+    if(realAssign_nC_ > n_)
+      realAssign_nC_ = n_;
+    if(realAssign_nR_ > n_)
+      realAssign_nR_ = n_;
+  }
+
+  double Murty::getBestScore() const{
+    return bestScore_;
+  }
+
+  int Murty::findNextBest( Assignment &assignment, double &score){
+
+    // For notation, assume Z are the elements represented by the rows of the cost matrix
+    // and M are the elements represented by the columns of the cost matrix
+  
+    //----- Calling for the first time -----//
+    if( k_ == 0 ){
+      Assignment a(new int[n_]);
+      double s; 
+      lam_.run(C_, n_, a.get(), &s);
+      root_->setAssignment(a, s);
+      k_++;
+      pq.push(root_.get());
+      assignment = a;
+      score = s;
+      bestScore_ = s;
+      return k_;
+    }
+
+    //----- Pop the highest-score node -----//
+    if(pq.empty()){ // no more solution available
+      assignment.reset();
+      score = 0;
+      return -1;
+    }
+    MurtyNode* parent = pq.top();
+    int parent_partition = parent->getPartitionID();
+    pq.pop();
+
+    Assignment a_parent = parent->getAssignment();
+    bool Z_pairedToReal_M[n_];
     for(int i = 0; i < n_; i++){
-      freeCol[i] = true;
+      Z_pairedToReal_M[i] = false;
     }
-    double assignmentFixedScore = 0;
-
-    // Copy all the fixed assignments from the parent node
-    //printf("Must have: ");
-    for(int i = 0; i < parent_partition; i++){
-      a[i] = a_parent[i];
-      freeCol[a[i]] = false;
-      assignmentFixedScore += C_[i][a[i]];
-      //printf("(%d,%d)[%f] ", i, a[i], C_[i][a[i]]);
+    for(int i = 0; i < realAssign_nR_; i++){
+      Z_pairedToReal_M[ a_parent[i] ] = true;
     }
 
-    // assignments that have to be included in this partition
-    for(int i = parent_partition; i < n; i++){
-      a[i] = a_parent[i];
-      freeCol[a[i]] = false;
-      assignmentFixedScore += C_[i][a[i]];
-      //printf("(%d,%d)[%f] ", i, a[i], C_[i][a[i]]);
-    } 
-    //printf("\n");
-
-    // build up the cost matrix to solve, which may be smaller than the original cost matrix due to fixed assignments
-    int nFreeAssignments = n_ - n;
-    int rowRemap[nFreeAssignments]; // find entry in original matrix from reduced matrix
-    int rowRemapR[n_]; // find extry in reduced matrix from original matrix
-    int colRemap[nFreeAssignments];
-    int colRemapR[n_];
-    int nFreeCols = 0;
-
-    for(int i = 0; i < nFreeAssignments; i++){
-      rowRemap[i] = n + i;
-      rowRemapR[n+i] = i;
-      //printf("Remap row %d to %d\n", rowRemap[i], i);
+    //----- partition this node (into  - 1 - parent_partition_id parts) -----//
+    // printf("\n************************\n");
+    int partitionMax = realAssign_nR_;
+    int nNewPartitions = realAssign_nR_ - parent_partition + 1;
+    if( realAssign_nR_ == n_ ){
+      partitionMax = n_ - 1;
+      nNewPartitions = n_ - parent_partition - 1;
     }
-    for(int j = 0; j < n_; j++){
-      if(freeCol[j]){
-	colRemap[nFreeCols] = j;
-	colRemapR[j] = nFreeCols;
-	//printf("Remap col %d to %d\n", colRemap[nFreeCols], nFreeCols);
-	nFreeCols++; 
+    // printf("Parent partition: %d, Make %d new partitions\n", parent_partition, nNewPartitions);
+    for(int n = parent_partition; n < partitionMax; n++ ){ 
+      
+      // printf("\nPartition %d\n", n);
+      MurtyNode* p = new MurtyNode(n, n_);
+      parent->addChild(p);
+      Assignment a(new int[n_]);
+      bool freeCol[n_];
+      for(int i = 0; i < n_; i++){
+	freeCol[i] = true;
       }
-    } // at this point nFreeCol should equal nFreeAssignments
-    for(int i = 0; i < nFreeAssignments; i++ ){
-	
-      for(int j = 0; j < nFreeAssignments; j++ ){
-	//printf("Remap [%d,%d] to [%d,%d]\n", original_i, original_j, i, j);
-	C_t_[i][j] = C_[rowRemap[i]][colRemap[j]];
-      }
-    }
+      double assignmentFixedScore = 0;
 
-    // Set all the assignments that cannot occur
-    //printf("Must not have: ");
-    MurtyNode* current = p;
-    MurtyNode* next;
-    do{
-      int currentPart = current->getPartitionID();
-      if( currentPart < p->getPartitionID() ){
-	break;
+      //----- Identify fixed assignments -----//
+      // printf("Must have: ");
+      // Copy all the fixed assignments from the parent node
+      for(int i = 0; i < parent_partition; i++){
+	a[i] = a_parent[i];
+	freeCol[a[i]] = false; // M[i] has been paired with Z[ a[i] ]
+	assignmentFixedScore += C_[i][a[i]];
+	// printf("(%d,%d)[%f] ", i, a[i], C_[i][a[i]]);
       }
-      next = static_cast< MurtyNode* > ( current->getParent() );
-      int* nextAssignment = next->getAssignment();
-      int doNotAssign_i = rowRemapR[currentPart];
-      int doNotAssign_j = colRemapR[nextAssignment[currentPart]];
-      C_t_[doNotAssign_i][doNotAssign_j] = -bigNumber_;	
-      //printf("(%d,%d)=>(%d,%d) ", currentPart, nextAssignment[currentPart],doNotAssign_i,doNotAssign_j);
-      current = next;
-	
-    }while (current != root_ );
-    //printf("\n");
-    bool solutionPossible = false;
-    int constraintRow = rowRemapR[p->getPartitionID()];
-    for(int j = 0; j < nFreeAssignments; j++){
-      if( C_t_[constraintRow][j] != -bigNumber_){
-	solutionPossible = true;
-	break;
-      }
-    }
+      // assignments that have to be included in this partition
+      for(int i = parent_partition; i < n; i++){
+	a[i] = a_parent[i];
+	freeCol[a[i]] = false;
+	assignmentFixedScore += C_[i][a[i]];
+	//printf("(%d,%d)[%f] ", i, a[i], C_[i][a[i]]);
+      } 
+      // printf("\n");
 
-    // Solve best-linear assignment for the n-th partition
-    if(solutionPossible){
-      int aTmp[nFreeAssignments];
-      double s = 0;
-      /*printf("Solving best linear assignment for cost matrix:\n");
+      //----- build up the cost matrix to solve from non-fixed assignemnts-----// 
+      int nFreeAssignments = n_ - n;
+      int rowRemap[nFreeAssignments]; // find entry in original matrix from reduced matrix
+      int rowRemapR[n_];              // find entry in reduced matrix from original matrix (reverse remap)
+      int colRemap[nFreeAssignments];
+      int colRemapR[n_];
+      int nFreeCols = 0;
+
+      for(int i = 0; i < nFreeAssignments; i++){
+	rowRemap[i] = n + i;
+	rowRemapR[n+i] = i;
+	// printf("Remap row %d to %d\n", rowRemap[i], i);
+      }
+      for(int j = 0; j < n_; j++){
+	if(freeCol[j]){
+	  colRemap[nFreeCols] = j;
+	  colRemapR[j] = nFreeCols;
+	  // printf("Remap col %d to %d\n", colRemap[nFreeCols], nFreeCols);
+	  nFreeCols++; 
+	}
+      } // at this point nFreeCol should equal nFreeAssignments
+      for(int i = 0; i < nFreeAssignments; i++ ){
+	for(int j = 0; j < nFreeAssignments; j++ ){
+	  C_t_[i][j] = C_[rowRemap[i]][colRemap[j]];
+	}
+      }
+
+      //----- Set all the assignments that cannot occur (negative constraints) ----->
+      // printf("Must not have: ");
+      MurtyNode* current = p;
+      MurtyNode* next;
+      do{
+	int currentPart = current->getPartitionID();
+	next = static_cast< MurtyNode* > ( current->getParent() );
+	Assignment nextAssignment = next->getAssignment();
+	int doNotAssign_i = rowRemapR[currentPart];
+	int doNotAssign_j = colRemapR[nextAssignment[currentPart]];
+	C_t_[doNotAssign_i][doNotAssign_j] = -bigNumber_;	
+	if( doNotAssign_j >= realAssign_nC_ ){ // check if doNotAssign_j is a real assignment to avoid duplicate assignments
+	  for(int y = 0; y < nFreeAssignments; y++ ){
+	    if( y >= realAssign_nC_ ){
+	      C_t_[doNotAssign_i][y] = -bigNumber_;
+	    }
+	  }
+	}
+	// printf("(%d,%d)=>(%d,%d) ", currentPart, nextAssignment[currentPart],doNotAssign_i,doNotAssign_j);
+	current = next;	
+      }while (current != root_.get() && current->getPartitionID() >= p->getPartitionID());
+      // printf("\n");
+    
+      //----- Will we ever end up with a row that can't be assigned to any column? -----//
+      //----- This may not be necessary ------///
+      bool solutionPossible = false;
+      int constraintRow = rowRemapR[p->getPartitionID()];
+      for(int j = 0; j < nFreeAssignments; j++){
+	if( C_t_[constraintRow][j] != -bigNumber_){
+	  solutionPossible = true;
+	  break;
+	}
+      }
+
+      //----- Solve best-linear assignment for the partition -----//
+      if(solutionPossible){
+	Assignment aTmp(new int[nFreeAssignments]);
+	double s = 0;
+
+	/*printf("Solving best linear assignment for cost matrix:\n");
 	for(int i = 0; i < nFreeAssignments; i++ ){
 	for(int j = 0; j < nFreeAssignments; j++ ){
 	printf("%f   ", C_t_[i][j]);
 	}
 	printf("\n");
 	}*/
-      lam_.run(C_t_, nFreeAssignments, aTmp, &s);
+
+	lam_.run(C_t_, nFreeAssignments, aTmp.get(), &s);
       
-      double s_more_accurate = 0;
-      for(int i = 0; i < nFreeAssignments; i++){
-	int i_actual = rowRemap[i];
-	int j_actual = colRemap[aTmp[i]];
-	a[i_actual] = j_actual;
-	s_more_accurate += C_[i_actual][a[i_actual]];
-      }
-      /*printf("Assignment:\n");
+	// Hungarian method performs operations directly on cost matrix
+	// and may have introduced small numerical differences to score.
+	// Therefore we calculate score from the original cost matrix.
+	double s_more_accurate = 0; 
+	for(int i = 0; i < nFreeAssignments; i++){
+	  int i_actual = rowRemap[i];
+	  int j_actual = colRemap[aTmp[i]];
+	  a[i_actual] = j_actual;
+	  s_more_accurate += C_[i_actual][a[i_actual]];
+	}
+	s_more_accurate += assignmentFixedScore;
+
+	/*printf("Assignment:\n");
 	for(int i = 0; i < n_; i++){
-	printf("x[%d] ----- y[%d]\n", i, a[i]);
-	}*/
-      s_more_accurate += assignmentFixedScore;
-      // printf("Score: %f\n", s);
+	  printf("x[%d] ----- y[%d]\n", i, a[i]);
+	}
+	printf("Score: %f\n", s_more_accurate);*/
       
-      // Insert the solution in the priority queue and set it as a child of the highest-score node
-      p->setAssignment(a, s_more_accurate);
-      pq.push(p);
-    }else{
-      //printf("No solution possible with this partition\n");
-      for(int i = 0; i < n_; i++){
-	a[i] = -1;
+	// Insert the solution in the priority queue
+	p->setAssignment(a, s_more_accurate);
+	pq.push(p);
+      }else{ // no solution possible... again, do we ever get to this case?
+	//printf("No solution possible with this partition\n");
+	/*for(int i = 0; i < n_; i++){
+	  a[i] = -1;
+	  }
+	  p->setAssignment(a, -1);*/
       }
-      p->setAssignment(a, -1);
-    }
       
-  } // end for all partitions
+    } // end for all partitions
 
-    // All new partitions have been inserted, now look for the highest score
-  if(pq.empty()){
-    //printf("No more solutions available\n");
-    assignment = NULL;
-    *score = 0;
-    return -1;
+    //----- All new partitions have been inserted, now look for the highest score -----//
+    if(pq.empty()){
+      assignment.reset();
+      score = 0;
+      return -1;
+    }
+    MurtyNode* node_hi = pq.top();
+    assignment = node_hi->getAssignment();
+    score = node_hi->getScore();
+    k_++;
+    return k_;
   }
-  MurtyNode* node_hi = pq.top();
-  assignment = node_hi->getAssignment();
-  *score = node_hi->getScore();
-    
-  k_++;
-
-  return k_;
-}
 
 }
