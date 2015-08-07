@@ -12,7 +12,7 @@ of RFS filters. This library is an on-going project, and we intend to update it
 when any related work is published. Any feedback will be appreciated. 
 
 * License: New BSD
-* Version: 1.1.0
+* Version: 1.2.0
 * Compiles with gcc on Linux (Ubuntu 13.04, 13.10, 14.04)
 * Compiles with llvm on Mac (OSX 10.10)
 
