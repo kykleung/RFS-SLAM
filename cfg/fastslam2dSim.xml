@@ -1,0 +1,78 @@
+<!-- Simulator_RBPHDSLAM_2d configuration file -->
+
+<config>
+  
+  <logging>
+    <logResultsToFile>1</logResultsToFile>
+    <logTimingToFile>1</logTimingToFile>
+    <logDirPrefix>data/fastslam/</logDirPrefix>
+  </logging>
+
+  <timesteps>3000</timesteps>
+  <sec_per_timestep>0.1</sec_per_timestep>
+
+  <trajectory>
+    <nSegments>20</nSegments> <!-- number of constant velocity segments -->
+    <max_dx_per_sec>0.30</max_dx_per_sec> <!-- max x-displacement per second -->
+    <max_dy_per_sec>0.00</max_dy_per_sec> <!-- max y-displacement per second -->
+    <max_dz_per_sec>0.50</max_dz_per_sec> <!-- max rotation per second -->
+    <min_dx_per_sec>0.10</min_dx_per_sec> <!-- min x-displacement per second -->
+    <vardx>0.00200</vardx> <!-- variance in x displacement per second -->
+    <vardy>0.00200</vardy> <!-- variance in y displacement per second -->
+    <vardz>0.00200</vardz> <!-- variance in rotation displacement per second -->
+  </trajectory>
+
+  <landmarks>
+    <nLandmarks>50</nLandmarks> <!-- number of landmarks -->
+    <varlmx>0.0002</varlmx> <!-- increase in landmark x uncertainty per second -->
+    <varlmy>0.0002</varlmy> <!-- increase in landmark y uncertainty per second -->
+  </landmarks>
+
+  <measurements>
+    <rangeLimitMax>2.5</rangeLimitMax> <!-- measurement range limit -->
+    <rangeLimitMin>0.5</rangeLimitMin> <!-- measurement range limit -->
+    <rangeLimitBuffer>0.05</rangeLimitBuffer> <!-- buffer zone around range limit in which negative information has no effects -->
+    <probDetection>0.99</probDetection> <!-- probability of detection -->
+    <clutterIntensity>0.0001</clutterIntensity> <!-- uniform clutter intensity -->
+    <varzr>0.0005</varzr> <!-- range measurement variance -->
+    <varzb>0.00005</varzb> <!-- bearing measurement variance (0.0001 is roughly 0.6 deg standard deviation) -->
+  </measurements>
+  
+  <filter>
+    <nParticles>200</nParticles> <!-- number of particles -->
+    
+    <predict>
+      <processNoiseInflationFactor>1.5</processNoiseInflationFactor> <!-- inflation factor of process noise covariance -->
+    </predict>
+
+    <update>
+      <measurementNoiseInflationFactor>10.0</measurementNoiseInflationFactor> <!-- inflation factor of measurement covariance -->
+      <maxNDataAssocHypotheses>1</maxNDataAssocHypotheses> <!-- max number of hypotheses per particle -->
+      <maxDataAssocLogLikelihoodDiff>3.0</maxDataAssocLogLikelihoodDiff> <!-- When <maxNDataAssocHypotheses> > 1, maximum difference in log likelihood to the next best hypothesis for it to be considered valid for data association -->    
+      <KalmanFilter>
+	<innovationThreshold> <!-- exceeding innovation will cause Kalman Filter update to not occur, set this according to noise -->
+	  <range>1.0</range>  
+	  <bearing>0.2</bearing>
+	</innovationThreshold>
+      </KalmanFilter>
+    </update>
+
+    <weighting>
+      <minLogMeasurementLikelihood>-10.0</minLogMeasurementLikelihood> <!-- Likelihoods smaller than this will be limited for numerical stability in calculating particle importance weighting -->
+    </weighting>
+
+    <resampling>
+      <effNParticle>100.0</effNParticle> <!-- Threshold for resampling -->
+      <minTimesteps>2</minTimesteps> <!-- Minimum number of timesteps between resampling -->
+    </resampling>
+
+    <prune>
+      <threshold>-5.0</threshold> <!-- The log odds threshold for eliminating a landmark from the map -->
+    </prune>   
+
+    <reportTimingInfo>1</reportTimingInfo> 
+
+  </filter>
+
+
+</config>
