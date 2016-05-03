@@ -55,7 +55,7 @@ void Timer::resume(){
 void Timer::elapsed(std::string &t_wall, std::string &t_cpu){
   ::boost::timer::cpu_times dt = timer_.elapsed();
   t_wall = ::boost::lexical_cast<std::string>( dt.wall );
-  t_wall = ::boost::lexical_cast<std::string>( dt.user + dt.system );
+  t_cpu = ::boost::lexical_cast<std::string>( dt.user + dt.system );
 }
 
 void Timer::elapsed(long long &t_wall, long long &t_cpu){
