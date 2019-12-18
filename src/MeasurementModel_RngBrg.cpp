@@ -173,7 +173,7 @@ double MeasurementModel_RngBrg::clutterIntensity( Measurement2d &z,
 
 
 double MeasurementModel_RngBrg::clutterIntensityIntegral( int nZ ){
-  double sensingArea_ = 2 * PI * (config.rangeLimMax_ - config.rangeLimMin_);
+  double sensingArea_ = PI * (pow(config.rangeLimMax_,2) - pow(config.rangeLimMin_,2));
   return ( config.uniformClutterIntensity_ * sensingArea_ );
 }
 
