@@ -40,6 +40,7 @@
 #include <stdio.h>
 #include <string>
 #include <sys/ioctl.h>
+#include <random>
 
 #ifdef _PERFTOOLS_CPU
 #include <gperftools/profiler.h>
@@ -291,20 +292,6 @@ public:
     measurementModel.config.uniformClutterIntensity_ = c_;
     double meanClutter = measurementModel.clutterIntensityIntegral();
     
-    double expNegMeanClutter = exp( -meanClutter );
-    double poissonPmf[100];
-    double poissonCmf[100];
-    double mean_pow_i = 1;
-    double i_factorial = 1;
-    poissonPmf[0] = expNegMeanClutter;
-    poissonCmf[0] = poissonPmf[0];
-    for( int i = 1; i < 100; i++){
-      mean_pow_i *= meanClutter;
-      i_factorial *= i;
-      poissonPmf[i] = mean_pow_i / i_factorial * expNegMeanClutter;
-      poissonCmf[i] = poissonCmf[i-1] + poissonPmf[i]; 
-    }
-
     lmkFirstObsTime_.resize( groundtruth_landmark_.size());
     for( int m = 0; m < lmkFirstObsTime_.size(); m++ ){
       lmkFirstObsTime_[m] = -1;
@@ -342,27 +329,51 @@ public:
       }
 
       // False alarms
-      double randomNum = drand48();
-      int nClutterToGen = 0;
-      while( randomNum > poissonCmf[ nClutterToGen ] ){
-	nClutterToGen++;
-      }
-      for( int i = 0; i < nClutterToGen; i++ ){
-	
-	double r = drand48() * rangeLimitMax_;
-	while(r < rangeLimitMin_)
-	  r = drand48() * rangeLimitMax_;
-	double b = drand48() * 2 * PI - PI;
-	MeasurementModel_RngBrg::TMeasurement z_clutter;
-	MeasurementModel_RngBrg::TMeasurement::Vec z;
-	z << r, b;
-	z_clutter.set(z, t);
-	measurements_.push_back(z_clutter);
-	
+      int nClutterToGen =  getClutterCount(meanClutter);
+      for( int i = 0; i < nClutterToGen; i++ ){	
+        double r = drand48() * rangeLimitMax_;
+        while(r < rangeLimitMin_)
+          r = drand48() * rangeLimitMax_;
+        double b = drand48() * 2 * PI - PI;
+        MeasurementModel_RngBrg::TMeasurement z_clutter;
+        MeasurementModel_RngBrg::TMeasurement::Vec z;
+        z << r, b;
+        z_clutter.set(z, t);
+        measurements_.push_back(z_clutter);
       }
       
     }
     
+  }
+  /** Compute number of clutter measurements */
+  int getClutterCount(double meanClutter){
+    // use gaussian approximation if meanClutter > 10
+    if(meanClutter > 10){
+      std::random_device rd{};
+      std::mt19937 gen{rd()};
+      std::normal_distribution<double> dist{meanClutter-0.5,sqrt(meanClutter)};
+      return (int) std::round(dist(gen));
+    }
+
+    double expNegMeanClutter = exp( -meanClutter );
+    double poissonPmf[100];
+    double poissonCmf[100];
+    double mean_pow_i = 1;
+    double i_factorial = 1;
+    poissonPmf[0] = expNegMeanClutter;
+    poissonCmf[0] = poissonPmf[0];
+    for( int i = 1; i < 100; i++){
+      mean_pow_i *= meanClutter;
+      i_factorial *= i;
+      poissonPmf[i] = mean_pow_i / i_factorial * expNegMeanClutter;
+      poissonCmf[i] = poissonCmf[i-1] + poissonPmf[i];
+    }
+    double randomNum = drand48();
+    int nClutterToGen = 0;
+    while( randomNum > poissonCmf[ nClutterToGen ] ){
+      nClutterToGen++;
+    }
+    return nClutterToGen;
   }
 
   /** Data Logging */
